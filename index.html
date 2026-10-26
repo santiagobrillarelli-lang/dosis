@@ -26,6 +26,7 @@
   --warn: #a35f00; --warn-soft: #fbedd3;
   --crit: #b3261e; --crit-soft: #fbe1de;
   --psy: #5a4bb0;  --psy-soft: #e9e5fa;
+  --gen: #1f6a8a;  --gen-soft: #dcecf4;
   --shadow: 0 1px 2px rgba(16,48,44,.06), 0 4px 16px rgba(16,48,44,.05);
   --f-display: "Bricolage Grotesque", "Atkinson Hyperlegible", system-ui, sans-serif;
   --f-body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -35,12 +36,12 @@
   --bg: #0d1a18; --surface: #152724; --ink: #e3efec; --muted: #93aaa5; --line: #29403b;
   --accent: #4fc39c; --accent-ink: #062019; --accent-soft: #173a31;
   --ok: #6fd39a; --ok-soft: #173627; --warn: #f0b45a; --warn-soft: #3a2b12; --crit: #ff8a80; --crit-soft: #42201d;
-  --psy: #b4a8ff; --psy-soft: #2a2550; --shadow: none; color-scheme: dark; } }
+  --psy: #b4a8ff; --psy-soft: #2a2550; --gen: #8cc8e6; --gen-soft: #173544; --shadow: none; color-scheme: dark; } }
 :root[data-theme="dark"] {
   --bg: #0d1a18; --surface: #152724; --ink: #e3efec; --muted: #93aaa5; --line: #29403b;
   --accent: #4fc39c; --accent-ink: #062019; --accent-soft: #173a31;
   --ok: #6fd39a; --ok-soft: #173627; --warn: #f0b45a; --warn-soft: #3a2b12; --crit: #ff8a80; --crit-soft: #42201d;
-  --psy: #b4a8ff; --psy-soft: #2a2550; --shadow: none; color-scheme: dark; }
+  --psy: #b4a8ff; --psy-soft: #2a2550; --gen: #8cc8e6; --gen-soft: #173544; --shadow: none; color-scheme: dark; }
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -70,6 +71,7 @@ header.top { display: flex; align-items: flex-end; justify-content: space-betwee
 .chip.warn { background: var(--warn-soft); color: var(--warn); }
 .chip.crit { background: var(--crit-soft); color: var(--crit); }
 .chip.psy { background: var(--psy-soft); color: var(--psy); }
+.chip.gen { background: var(--gen-soft); color: var(--gen); }
 .chip.plain { background: var(--accent-soft); color: var(--ink); font-weight: 400; }
 .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
 
@@ -427,7 +429,7 @@ const LocalDB = (() => {
         <div class="bar ${lv}" aria-hidden="true"><i style="width:${pct}%"></i></div>
         <div class="meta"><span class="chip ${lv}">${esc(until)}</span>
           ${nextStop(m, T) ? `<span class="chip plain">Se suspende el ${esc(fmtShort(nextStop(m, T).from))}</span>` : ""}
-          ${m.psych ? `<span class="chip psy">Psiquiátrico</span>` : ""}
+          ${m.psych ? `<span class="chip psy">Psiquiátrico</span>` : `<span class="chip gen">No psiquiátrico</span>`}
           ${m.doctor ? `<span>${esc(m.doctor)}</span>` : ""}</div>
       </button>`;
     }).join("") + stoppedList;
@@ -476,7 +478,7 @@ const LocalDB = (() => {
       Object.entries(groups).map(([doc, items]) => `<div class="order-group"><div class="label">${esc(doc)}</div>${items.map(x => `
         <div class="order-item">
           <div><strong>${esc(x.m.name)}</strong>${x.m.strength ? ` <span class="muted">${esc(x.m.strength)}</span>` : ""}
-            ${x.m.psych ? ` <span class="chip psy">Receta especial</span>` : ""}</div>
+</div>
           <div class="qty"><div class="label" style="font-family:var(--f-body)">A pedir</div>${fmtQty(Math.ceil(x.need))} ${esc(unitOf(x.m))}${x.boxes ? `<div class="small muted">${x.boxes} ${x.boxes === 1 ? "caja" : "cajas"}</div>` : ""}</div>
           <div class="why">${x.c.stock < 0 || x.c.days === 0 ? "Ya no tiene." : `Alcanza hasta el ${esc(fmtShort(x.c.until))}`}${x.beforeVisit && x.c.days > 0 ? " · se termina antes de la consulta" : ""}</div>
         </div>`).join("")}</div>`).join("");
@@ -576,7 +578,7 @@ const LocalDB = (() => {
         <datalist id="units"><option value="comprimidos"><option value="cápsulas"><option value="gotas"><option value="ml"><option value="sobres"><option value="parches"></datalist>
         <label class="field"><span>Médico que lo receta</span><input id="f-doctor" list="doctors" placeholder="Ej.: Psiquiatra, Clínico, Dra. Pérez" value="${esc(m?.doctor)}"></label>
         <datalist id="doctors">${doctorOptions()}</datalist>
-        <label class="check"><input type="checkbox" id="f-psych" ${m?.psych ? "checked" : ""}> Psiquiátrico (receta especial)</label>
+        <label class="check"><input type="checkbox" id="f-psych" ${m?.psych ? "checked" : ""}> Psiquiátrico</label>
         ${m ? "" : `
         <div class="row">
           <label class="field"><span>Cuánto hay hoy</span><input id="f-qty" inputmode="decimal" required placeholder="Ej.: 42"></label>
@@ -621,7 +623,7 @@ const LocalDB = (() => {
     ].sort((a, b) => a.date < b.date ? 1 : -1);
     const sh = openSheet(`
       <div class="sheet-head"><div><h2>${esc(m.name)} ${m.strength ? `<span class="muted">${esc(m.strength)}</span>` : ""}</h2>
-        <div class="small muted">${m.doctor ? esc(m.doctor) : "Sin médico asignado"}${m.psych ? " · Psiquiátrico" : ""}</div></div>
+        <div class="small muted">${m.doctor ? esc(m.doctor) : "Sin médico asignado"}${m.psych ? " · Psiquiátrico" : " · No psiquiátrico"}</div></div>
         <button class="x" data-close aria-label="Cerrar">×</button></div>
 
       <div class="panel">
