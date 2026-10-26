@@ -1,9 +1,10 @@
 {
+  "id": "./?app=dosis",
+  "start_url": "./?app=dosis",
   "name": "Dosis",
   "short_name": "Dosis",
   "description": "Stock de medicamentos, pastillero y pedidos",
   "lang": "es-AR",
-  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
