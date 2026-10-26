@@ -62,7 +62,7 @@ header.top { display: flex; align-items: flex-end; justify-content: space-betwee
 .today { font-size: .95rem; color: var(--muted); }
 
 .tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 4px; }
-.tabs button { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: 700 .95rem var(--f-body); padding: 10px 12px; border-radius: 999px; cursor: pointer; }
+.tabs button { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: var(--ink); font: 700 .92rem var(--f-body); padding: 10px 8px; border-radius: 999px; cursor: pointer; }
 .tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
 
 .summary { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -71,6 +71,21 @@ header.top { display: flex; align-items: flex-end; justify-content: space-betwee
 .chip.warn { background: var(--warn-soft); color: var(--warn); }
 .chip.crit { background: var(--crit-soft); color: var(--crit); }
 .chip.psy { background: var(--psy-soft); color: var(--psy); }
+.hist-day { display: flex; flex-direction: column; gap: 8px; }
+.hist-ev { display: flex; flex-direction: column; gap: 1px; }
+.hist-ev .k { font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.hist-ev .k.start { color: var(--ok); } .hist-ev .k.change { color: var(--warn); } .hist-ev .k.stop { color: var(--crit); } .hist-ev .k.resume { color: var(--accent); } .hist-ev .k.del { color: var(--muted); }
+.print-only { display: none; }
+@media print {
+  :root { --bg: #fff; --surface: #fff; --shadow: none; }
+  body { background: #fff; }
+  .tabs, .fab, #notice, .no-print, header.top .summary, #view-stock, #view-pill, #view-pedir, #sheetRoot, #toastRoot { display: none !important; }
+  #view-hist { display: flex !important; }
+  .print-only { display: block; }
+  .panel { box-shadow: none; }
+  .hist-day, .pill-row { break-inside: avoid; }
+  #todayLabel { display: none; }
+}
 .chip.gen { background: var(--gen-soft); color: var(--gen); }
 .chip.plain { background: var(--accent-soft); color: var(--ink); font-weight: 400; }
 .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
@@ -155,6 +170,7 @@ textarea { min-height: 70px; resize: vertical; }
     <button role="tab" id="tab-stock" aria-selected="true" data-tab="stock">Stock</button>
     <button role="tab" id="tab-pill" aria-selected="false" data-tab="pill">Pastillero</button>
     <button role="tab" id="tab-pedir" aria-selected="false" data-tab="pedir">Pedir</button>
+    <button role="tab" id="tab-hist" aria-selected="false" data-tab="hist">Historial</button>
   </div>
 
   <div id="notice" class="notice" hidden></div>
@@ -175,6 +191,16 @@ textarea { min-height: 70px; resize: vertical; }
       <div class="seg" id="pillQuick"><button type="button" data-n="7">1 semana</button><button type="button" data-n="14">2 semanas</button><button type="button" data-n="28">4 semanas</button></div>
     </div>
     <div id="pillOut" style="display:flex;flex-direction:column;gap:14px"></div>
+  </section>
+
+  <section id="view-hist" hidden style="display:flex;flex-direction:column;gap:14px">
+    <div class="panel no-print">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <p class="hint" style="margin:0;flex:1 1 200px">Se arma solo con lo que cargás: cuándo empezaste cada medicamento, los cambios de dosis y las suspensiones.</p>
+        <button class="btn" type="button" id="histPdf">Descargar PDF</button>
+      </div>
+    </div>
+    <div id="histOut" style="display:flex;flex-direction:column;gap:14px"></div>
   </section>
 
   <section id="view-pedir" hidden style="display:flex;flex-direction:column;gap:14px">
@@ -337,9 +363,9 @@ const LocalDB = (() => {
   const level = days => days === null ? "plain" : days <= 7 ? "crit" : days <= 21 ? "warn" : "ok";
 
   // ---------- estado ----------
-  let db = null, meds = [], settings = {}, tab = "stock", doctorSel = "Todos", stockFilter = 0;
+  let db = null, meds = [], archived = [], settings = {}, tab = "stock", doctorSel = "Todos", stockFilter = 0;
   try { const f = +localStorage.getItem("dosis.stockFilter"); if (f === 7 || f === 30) stockFilter = f; } catch {}
-  try { const t = localStorage.getItem("dosis.tab"); if (t === "pedir" || t === "pill") tab = t; } catch {}
+  try { const t = localStorage.getItem("dosis.tab"); if (t === "pedir" || t === "pill" || t === "hist") tab = t; } catch {}
   const writeChains = {};
   function write(path, fn) {
     const prev = writeChains[path] || Promise.resolve();
@@ -367,6 +393,8 @@ const LocalDB = (() => {
     $("#view-stock").hidden = t !== "stock";
     $("#view-pedir").hidden = t !== "pedir";
     $("#view-pill").hidden = t !== "pill";
+    $("#view-hist").hidden = t !== "hist";
+    $("#addBtn").hidden = t === "hist";
     render();
   }
   document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => setTab(b.dataset.tab));
@@ -391,7 +419,7 @@ const LocalDB = (() => {
     }
     $("#summary").innerHTML = sum;
 
-    if (tab === "stock") renderStock(rows, T); else if (tab === "pill") renderPill(T); else renderOrder(rows, T);
+    if (tab === "stock") renderStock(rows, T); else if (tab === "pill") renderPill(T); else if (tab === "hist") renderHist(T); else renderOrder(rows, T);
   }
 
   function renderStock(rows, T) {
@@ -440,6 +468,47 @@ const LocalDB = (() => {
       render();
     });
   }
+
+  // ---------- historial ----------
+  function histEvents(T) {
+    const ev = [];
+    const all = [...meds.map(m => ({ m, del: null })), ...archived.map(m => ({ m, del: m.deletedOn || null }))];
+    for (const { m, del } of all) {
+      const nm = `${m.name}${m.strength ? " " + m.strength : ""}`;
+      let prev = null;
+      for (const s of sortBy(m.schedule, "from")) {
+        if (s.from > T) break;
+        if (s.stopped) ev.push({ date: s.from, kind: "stop", label: "Suspendió", name: nm, text: prev ? `Tomaba ${scheduleLine(prev)}` : "" });
+        else if (!prev) ev.push({ date: s.from, kind: "start", label: "Empezó", name: nm, text: scheduleLine(s) });
+        else if (prev.stopped) ev.push({ date: s.from, kind: "resume", label: "Retomó", name: nm, text: scheduleLine(s) });
+        else ev.push({ date: s.from, kind: "change", label: "Cambio de dosis", name: nm, text: `${scheduleLine(prev)} → ${scheduleLine(s)}` });
+        prev = s;
+      }
+      if (del) ev.push({ date: del, kind: "del", label: "Se borró de la app", name: nm, text: "" });
+    }
+    return ev.sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
+  }
+  function renderHist(T) {
+    const out = $("#histOut");
+    const name = m => `<strong>${esc(m.name)}</strong>${m.strength ? ` <span class="muted">${esc(m.strength)}</span>` : ""}`;
+    const current = meds.filter(m => !suspendedOn(m, T) && perDayOn(m, T) > 0).sort((a, b) => a.name.localeCompare(b.name));
+    const before = [...meds.filter(m => suspendedOn(m, T)).map(m => ({ m, since: suspendedOn(m, T).from })),
+      ...archived.map(m => ({ m, since: m.deletedOn }))].sort((a, b) => a.m.name.localeCompare(b.m.name));
+    const ev = histEvents(T);
+    const byDate = {}; ev.forEach(e => (byDate[e.date] ||= []).push(e));
+    out.innerHTML = `<div class="print-only"><h2>Historial de medicación</h2><p class="muted">Generado el ${esc(fmtDate(T, { day: "numeric", month: "long", year: "numeric" }))}</p></div>
+      <div class="panel"><h3>Toma actualmente</h3>
+        ${current.length ? current.map(m => `<div class="pill-row"><div>${name(m)}${m.psych ? ` <span class="chip psy">Psiquiátrico</span>` : ""}<div class="small muted">${esc(doseText(m, T))}</div></div></div>`).join("") : `<p class="muted small" style="margin:0">Nada cargado.</p>`}</div>
+      ${before.length ? `<div class="panel"><h3>Tomaba antes</h3>${before.map(({ m, since }) => {
+          const last = lastActive(m);
+          return `<div class="pill-row"><div>${name(m)}<div class="small muted">${last ? esc(scheduleLine(last)) + " · " : ""}hasta el ${esc(fmtDate(since, { day: "numeric", month: "short", year: "numeric" }))}</div></div></div>`;
+        }).join("")}</div>` : ""}
+      <div class="panel"><h3>Cambios</h3>
+        ${ev.length ? Object.entries(byDate).map(([d, items]) => `<div class="hist-day"><div class="label">${esc(fmtDate(d, { weekday: "short", day: "numeric", month: "short", year: "numeric" }))}</div>
+          ${items.map(e => `<div class="hist-ev"><span class="k ${e.kind}">${esc(e.label)}</span><span><strong>${esc(e.name)}</strong></span>${e.text ? `<span class="d small muted">${esc(e.text)}</span>` : ""}</div>`).join("")}</div>`).join('<hr style="border:0;border-top:1px solid var(--line);margin:4px 0">')
+          : `<p class="muted small" style="margin:0">Todavía no hay cambios.</p>`}</div>`;
+  }
+  $("#histPdf").onclick = () => { if (tab !== "hist") setTab("hist"); setTimeout(() => window.print(), 50); };
 
   function renderOrder(rows, T) {
     const visit = settings.visitDate || addDays(T, 7);
@@ -744,6 +813,8 @@ const LocalDB = (() => {
       box.scrollIntoView({ block: "nearest" });
       box.querySelector("#c-no").onclick = () => box.innerHTML = "";
       box.querySelector("#c-yes").onclick = async () => {
+        const { id: _id, ...body } = m;
+        await write("archive/" + m.id, () => db.collection("archive").doc(m.id).set(JSON.parse(JSON.stringify({ ...body, deletedOn: todayStr() }))));
         await write("meds/" + m.id, () => db.collection("meds").doc(m.id).delete());
         toast("Eliminado"); closeSheet();
       };
@@ -767,6 +838,7 @@ const LocalDB = (() => {
       render();
       if (openDetailId && !editing) openDetail(openDetailId, true);
     }, e => { const n = $("#notice"); n.hidden = false; n.textContent = "Se perdió la conexión con los datos. Recargá la página."; });
+    db.collection("archive").onSnapshot(snap => { archived = snap.docs.map(d => ({ id: d.id, ...structuredClone(d.data()) })); if (tab === "hist") render(); }, () => {});
     db.doc("settings/main").onSnapshot(s => { settings = s.exists ? { ...s.data() } : {}; if (tab === "pedir") render(); }, () => {});
     // refresca al cambiar el día con la página abierta
     let day = todayStr();
