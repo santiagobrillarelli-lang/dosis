@@ -470,18 +470,28 @@ const LocalDB = (() => {
   }
 
   // ---------- historial ----------
+  // Dosis diaria expresada en mg (o la unidad de la concentración) para el historial.
+  function dailyAmount(m, s) {
+    if (!s || s.stopped || !s.perDay) return "0 por día";
+    const g = String(m.strength || "").match(/(\d+(?:[.,]\d+)?)\s*(mg|mcg|µg|ug|g|ml|ui)\b/i);
+    if (g) {
+      const tot = Math.round(parseNum(g[1]) * s.perDay * 100) / 100;
+      return `${String(tot).replace(".", ",")} ${g[2].toLowerCase()} por día`;
+    }
+    return `${fmtQty(s.perDay)} ${unitOf(m)} por día`;
+  }
   function histEvents(T) {
     const ev = [];
     const all = [...meds.map(m => ({ m, del: null })), ...archived.map(m => ({ m, del: m.deletedOn || null }))];
     for (const { m, del } of all) {
-      const nm = `${m.name}${m.strength ? " " + m.strength : ""}`;
+      const nm = m.name;
       let prev = null;
       for (const s of sortBy(m.schedule, "from")) {
         if (s.from > T) break;
-        if (s.stopped) ev.push({ date: s.from, kind: "stop", label: "Suspendió", name: nm, text: prev ? `Tomaba ${scheduleLine(prev)}` : "" });
-        else if (!prev) ev.push({ date: s.from, kind: "start", label: "Empezó", name: nm, text: scheduleLine(s) });
-        else if (prev.stopped) ev.push({ date: s.from, kind: "resume", label: "Retomó", name: nm, text: scheduleLine(s) });
-        else ev.push({ date: s.from, kind: "change", label: "Cambio de dosis", name: nm, text: `${scheduleLine(prev)} → ${scheduleLine(s)}` });
+        if (s.stopped) ev.push({ date: s.from, kind: "stop", label: "Suspendió", name: nm, text: prev ? `Tomaba ${dailyAmount(m, prev)}` : "" });
+        else if (!prev) ev.push({ date: s.from, kind: "start", label: "Empezó", name: nm, text: dailyAmount(m, s) });
+        else if (prev.stopped) ev.push({ date: s.from, kind: "resume", label: "Retomó", name: nm, text: dailyAmount(m, s) });
+        else ev.push({ date: s.from, kind: "change", label: "Cambio de dosis", name: nm, text: `De ${dailyAmount(m, prev)} a ${dailyAmount(m, s)}` });
         prev = s;
       }
       if (del) ev.push({ date: del, kind: "del", label: "Se borró de la app", name: nm, text: "" });
@@ -490,7 +500,7 @@ const LocalDB = (() => {
   }
   function renderHist(T) {
     const out = $("#histOut");
-    const name = m => `<strong>${esc(m.name)}</strong>${m.strength ? ` <span class="muted">${esc(m.strength)}</span>` : ""}`;
+    const name = m => `<strong>${esc(m.name)}</strong>`;
     const current = meds.filter(m => !suspendedOn(m, T) && perDayOn(m, T) > 0).sort((a, b) => a.name.localeCompare(b.name));
     const before = [...meds.filter(m => suspendedOn(m, T)).map(m => ({ m, since: suspendedOn(m, T).from })),
       ...archived.map(m => ({ m, since: m.deletedOn }))].sort((a, b) => a.m.name.localeCompare(b.m.name));
@@ -498,10 +508,10 @@ const LocalDB = (() => {
     const byDate = {}; ev.forEach(e => (byDate[e.date] ||= []).push(e));
     out.innerHTML = `<div class="print-only"><h2>Historial de medicación</h2><p class="muted">Generado el ${esc(fmtDate(T, { day: "numeric", month: "long", year: "numeric" }))}</p></div>
       <div class="panel"><h3>Toma actualmente</h3>
-        ${current.length ? current.map(m => `<div class="pill-row"><div>${name(m)}${m.psych ? ` <span class="chip psy">Psiquiátrico</span>` : ""}<div class="small muted">${esc(doseText(m, T))}</div></div></div>`).join("") : `<p class="muted small" style="margin:0">Nada cargado.</p>`}</div>
+        ${current.length ? current.map(m => `<div class="pill-row"><div>${name(m)}${m.psych ? ` <span class="chip psy">Psiquiátrico</span>` : ""}<div class="small muted">${esc(dailyAmount(m, currentSchedule(m, T)))}</div></div></div>`).join("") : `<p class="muted small" style="margin:0">Nada cargado.</p>`}</div>
       ${before.length ? `<div class="panel"><h3>Tomaba antes</h3>${before.map(({ m, since }) => {
           const last = lastActive(m);
-          return `<div class="pill-row"><div>${name(m)}<div class="small muted">${last ? esc(scheduleLine(last)) + " · " : ""}hasta el ${esc(fmtDate(since, { day: "numeric", month: "short", year: "numeric" }))}</div></div></div>`;
+          return `<div class="pill-row"><div>${name(m)}<div class="small muted">${last ? esc(dailyAmount(m, last)) + " · " : ""}hasta el ${esc(fmtDate(since, { day: "numeric", month: "short", year: "numeric" }))}</div></div></div>`;
         }).join("")}</div>` : ""}
       <div class="panel"><h3>Cambios</h3>
         ${ev.length ? Object.entries(byDate).map(([d, items]) => `<div class="hist-day"><div class="label">${esc(fmtDate(d, { weekday: "short", day: "numeric", month: "short", year: "numeric" }))}</div>
