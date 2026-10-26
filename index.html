@@ -74,6 +74,7 @@ header.top { display: flex; align-items: flex-end; justify-content: space-betwee
 .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
 
 .list { display: flex; flex-direction: column; gap: 10px; }
+.med.stopped { opacity: .7; }
 .med { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 14px 16px; box-shadow: var(--shadow); display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; cursor: pointer; text-align: left; color: inherit; font: inherit; width: 100%; }
 .med:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .med .name { min-width: 0; }
@@ -314,7 +315,11 @@ const LocalDB = (() => {
     if (!hasSlots(s)) return s.howto || "";
     return SLOTS.filter(([k]) => s[k] > 0).map(([k, l]) => `${l} ${fmtQty(s[k])}`).join(" · ");
   }
+  const suspendedOn = (m, d) => { const s = currentSchedule(m, d); return s && s.stopped ? s : null; };
+  const nextStop = (m, d) => sortBy(m.schedule, "from").find(s => s.from > d && s.stopped) || null;
+  const lastActive = m => sortBy(m.schedule, "from").reverse().find(s => !s.stopped && s.perDay > 0) || null;
   function scheduleLine(s) {
+    if (s && s.stopped) return "Suspendido";
     if (!s || !s.perDay) return "Sin dosis diaria";
     const t = slotText(s);
     return `${fmtQty(s.perDay)} por día${t ? " · " + t : ""}`;
@@ -399,10 +404,17 @@ const LocalDB = (() => {
       return;
     }
     const opts = [[0, "Todos"], [7, "1 semana"], [30, "1 mes"]];
-    const shown = stockFilter ? rows.filter(({ c }) => c.days !== null && c.days <= stockFilter) : rows;
+    const activeRows = rows.filter(({ m }) => !suspendedOn(m, T));
+    const stopped = rows.filter(({ m }) => suspendedOn(m, T)).sort((a, b) => a.m.name.localeCompare(b.m.name));
+    const shown = stockFilter ? activeRows.filter(({ c }) => c.days !== null && c.days <= stockFilter) : activeRows;
     const filterBar = `<div class="seg" id="stockFilter" role="group" aria-label="Mostrar lo que se termina en">${opts.map(([n, l]) => `<button type="button" aria-pressed="${n === stockFilter}" data-f="${n}">${l}</button>`).join("")}</div>`;
     const emptyMsg = `<div class="empty"><h2>Nada se termina en ${stockFilter === 7 ? "la próxima semana" : "el próximo mes"}</h2><p class="muted">Todos los medicamentos alcanzan más allá de esa fecha.</p></div>`;
-    v.innerHTML = filterBar + (shown.length ? "" : emptyMsg) + shown.map(({ m, c }) => {
+    const stoppedList = !stockFilter && stopped.length ? `<div class="label" style="margin-top:8px">Suspendidos</div>` + stopped.map(({ m, c }) => `<button class="med stopped" data-id="${esc(m.id)}">
+        <div class="name"><strong>${esc(m.name)}</strong>${m.strength ? ` <span class="muted">${esc(m.strength)}</span>` : ""}
+          <div class="small muted">Suspendido desde el ${esc(fmtShort(suspendedOn(m, T).from))}</div></div>
+        <div class="left"><div class="big">${c.stock === null ? "–" : fmtQty(Math.max(0, c.stock))}</div><div class="small muted">${esc(unitOf(m))}</div></div>
+      </button>`).join("") : "";
+    v.innerHTML = filterBar + (shown.length || stoppedList || !stockFilter ? "" : emptyMsg) + shown.map(({ m, c }) => {
       const lv = level(c.days);
       const pct = c.days === Infinity ? 100 : Math.max(3, Math.min(100, (c.days / 60) * 100));
       const until = c.days === Infinity ? "No se consume" : c.days === null ? "Falta cargar stock"
@@ -414,10 +426,11 @@ const LocalDB = (() => {
         <div class="left"><div class="big">${c.stock === null ? "–" : fmtQty(Math.max(0, c.stock))}</div><div class="small muted">${esc(unitOf(m))}</div></div>
         <div class="bar ${lv}" aria-hidden="true"><i style="width:${pct}%"></i></div>
         <div class="meta"><span class="chip ${lv}">${esc(until)}</span>
+          ${nextStop(m, T) ? `<span class="chip plain">Se suspende el ${esc(fmtShort(nextStop(m, T).from))}</span>` : ""}
           ${m.psych ? `<span class="chip psy">Psiquiátrico</span>` : ""}
           ${m.doctor ? `<span>${esc(m.doctor)}</span>` : ""}</div>
       </button>`;
-    }).join("");
+    }).join("") + stoppedList;
     v.querySelectorAll(".med").forEach(b => b.onclick = () => openDetail(b.dataset.id));
     v.querySelectorAll("#stockFilter button").forEach(b => b.onclick = () => {
       stockFilter = +b.dataset.f;
@@ -614,7 +627,7 @@ const LocalDB = (() => {
       <div class="panel">
         <div class="row" style="justify-content:space-between;align-items:flex-end">
           <div><div class="label">Quedan hoy</div><div class="num" style="font-size:2.2rem;font-weight:600;line-height:1.1">${c.stock === null ? "–" : fmtQty(Math.max(0, c.stock))} <span class="small muted" style="font-family:var(--f-body)">${esc(unitOf(m))}</span></div></div>
-          <span class="chip ${lv}">${c.days === Infinity ? "No se consume" : c.stock < 0 ? "Se terminó" : `Alcanza hasta el ${esc(fmtShort(c.until))}`}</span>
+          <span class="chip ${cur && cur.stopped ? "plain" : lv}">${cur && cur.stopped ? "Suspendido" : c.days === Infinity ? "No se consume" : c.stock < 0 ? "Se terminó" : `Alcanza hasta el ${esc(fmtShort(c.until))}`}</span>
         </div>
         ${c.stock < 0 ? `<p class="hint">Según la dosis, faltan ${fmtQty(-c.stock)} ${esc(unitOf(m))}. Registrá la compra o hacé un recuento.</p>` : ""}
         <div class="row">
@@ -626,8 +639,8 @@ const LocalDB = (() => {
 
       <div class="panel">
         <div class="row" style="justify-content:space-between;align-items:center">
-          <div><div class="label">Dosis actual</div><div style="font-weight:700">${esc(doseText(m, T))}</div></div>
-          <button class="btn" id="d-dose">Cambiar dosis</button>
+          <div><div class="label">Dosis actual</div><div style="font-weight:700">${cur && cur.stopped ? `Suspendido desde el ${esc(fmtShort(cur.from))}` : esc(doseText(m, T))}</div></div>
+          <div class="row">${cur && cur.stopped ? `<button class="btn primary" id="d-resume">Reactivar</button>` : `<button class="btn" id="d-dose">Cambiar dosis</button><button class="btn" id="d-stop">Suspender</button>`}</div>
         </div>
         <div id="d-doseForm"></div>
         <div><div class="label" style="margin-bottom:4px">Historial de dosis</div>
@@ -675,16 +688,16 @@ const LocalDB = (() => {
     };
     sh.querySelector("#d-add").onclick = () => qtyForm("add");
     sh.querySelector("#d-count").onclick = () => qtyForm("count");
-    sh.querySelector("#d-dose").onclick = () => {
+    const doseForm = (resume) => {
       editing = true;
       const f = sh.querySelector("#d-doseForm");
       f.innerHTML = `<form class="panel" style="padding:12px;background:var(--bg)" id="df">
         <div class="row">
-          <label class="field"><span>Desde</span><input id="n-from" type="date" value="${addDays(T, 1)}"></label>
+          <label class="field"><span>Desde</span><input id="n-from" type="date" value="${resume ? T : addDays(T, 1)}"></label>
         </div>
-        <div class="field"><span>Nueva dosis en cada toma</span>${slotInputs(cur)}</div>
-        <p class="hint">Si el médico la cambió hoy y ya tomó la dosis vieja, dejá la fecha de mañana. Con todo vacío queda suspendido.</p>
-        <button class="btn primary" type="submit">Guardar dosis</button></form>`;
+        <div class="field"><span>${resume ? "Dosis en cada toma" : "Nueva dosis en cada toma"}</span>${slotInputs(resume ? lastActive(m) : cur)}</div>
+        <p class="hint">${resume ? "Se completa con la última dosis que tenía. Cambiala si el médico indicó otra." : "Si el médico la cambió hoy y ya tomó la dosis vieja, dejá la fecha de mañana."}</p>
+        <button class="btn primary" type="submit">${resume ? "Reactivar" : "Guardar dosis"}</button></form>`;
       f.querySelector("[data-slot]").focus();
       f.querySelector("#df").onsubmit = async e => {
         e.preventDefault();
@@ -692,9 +705,26 @@ const LocalDB = (() => {
         if (!sl) { toast("Escribí dosis válidas."); return; }
         const nm = structuredClone(m);
         nm.schedule = [...(nm.schedule || []).filter(s => s.from !== from), { from, ...sl }];
-        await saveMed(nm); toast("Dosis actualizada");
+        await saveMed(nm); toast(resume ? "Reactivado" : "Dosis actualizada");
       };
     };
+    sh.querySelector("#d-dose") && (sh.querySelector("#d-dose").onclick = () => doseForm(false));
+    sh.querySelector("#d-resume") && (sh.querySelector("#d-resume").onclick = () => doseForm(true));
+    sh.querySelector("#d-stop") && (sh.querySelector("#d-stop").onclick = () => {
+      editing = true;
+      const f = sh.querySelector("#d-doseForm");
+      f.innerHTML = `<form class="panel" style="padding:12px;background:var(--bg)" id="stf">
+        <label class="field"><span>Deja de tomarlo desde</span><input id="st-from" type="date" value="${addDays(T, 1)}"></label>
+        <p class="hint">Queda guardado con su historial y lo que sobra. Sale del Pastillero y de Pedir, y lo podés reactivar cuando quieras.</p>
+        <button class="btn danger" type="submit">Suspender</button></form>`;
+      f.querySelector("#stf").onsubmit = async e => {
+        e.preventDefault();
+        const from = f.querySelector("#st-from").value || T;
+        const nm = structuredClone(m);
+        nm.schedule = [...(nm.schedule || []).filter(s => s.from !== from), { from, stopped: true, perDay: 0, ayunas: 0, manana: 0, noche: 0 }];
+        await saveMed(nm); toast(from > T ? `Se suspende el ${fmtShort(from)}` : "Suspendido");
+      };
+    });
     sh.querySelectorAll("[data-delsched]").forEach(b => b.onclick = async () => {
       const nm = structuredClone(m); nm.schedule = nm.schedule.filter(s => s.from !== b.dataset.delsched);
       await saveMed(nm);
