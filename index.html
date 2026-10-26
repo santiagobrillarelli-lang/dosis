@@ -470,49 +470,56 @@ const LocalDB = (() => {
   }
 
   // ---------- historial ----------
-  // Dosis diaria expresada en mg (o la unidad de la concentración) para el historial.
-  function dailyAmount(m, s) {
-    if (!s || s.stopped || !s.perDay) return "0 por día";
+  // Agrupa por nombre (sin importar mayúsculas ni tildes) y suma todas las presentaciones:
+  // Divalproato 250 mg a la mañana + Divalproato 500 mg a la noche = 750 mg por día.
+  const normName = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+  function amountOn(m, d, del) {
+    if (del && d >= del) return {};
+    const s = currentSchedule(m, d);
+    if (!s || s.stopped || !s.perDay) return {};
     const g = String(m.strength || "").match(/(\d+(?:[.,]\d+)?)\s*(mg|mcg|µg|ug|g|ml|ui)\b/i);
-    if (g) {
-      const tot = Math.round(parseNum(g[1]) * s.perDay * 100) / 100;
-      return `${String(tot).replace(".", ",")} ${g[2].toLowerCase()} por día`;
-    }
-    return `${fmtQty(s.perDay)} ${unitOf(m)} por día`;
+    return g ? { [g[2].toLowerCase()]: parseNum(g[1]) * s.perDay } : { [unitOf(m)]: s.perDay };
   }
-  function histEvents(T) {
-    const ev = [];
+  const addAmt = (a, b) => { const o = { ...a }; for (const k in b) o[k] = (o[k] || 0) + b[k]; return o; };
+  const isZero = a => !Object.values(a).some(v => v > 1e-9);
+  const amtKey = a => Object.keys(a).sort().map(k => k + ":" + Math.round(a[k] * 1000)).join("|");
+  const amtText = a => Object.entries(a).filter(([, v]) => v > 1e-9).map(([u, v]) => `${String(Math.round(v * 100) / 100).replace(".", ",")} ${u}`).join(" + ") + " por día";
+  function histGroups(T) {
+    const groups = {};
     const all = [...meds.map(m => ({ m, del: null })), ...archived.map(m => ({ m, del: m.deletedOn || null }))];
-    for (const { m, del } of all) {
-      const nm = m.name;
-      let prev = null;
-      for (const s of sortBy(m.schedule, "from")) {
-        if (s.from > T) break;
-        if (s.stopped) ev.push({ date: s.from, kind: "stop", label: "Suspendió", name: nm, text: prev ? `Tomaba ${dailyAmount(m, prev)}` : "" });
-        else if (!prev) ev.push({ date: s.from, kind: "start", label: "Empezó", name: nm, text: dailyAmount(m, s) });
-        else if (prev.stopped) ev.push({ date: s.from, kind: "resume", label: "Retomó", name: nm, text: dailyAmount(m, s) });
-        else ev.push({ date: s.from, kind: "change", label: "Cambio de dosis", name: nm, text: `De ${dailyAmount(m, prev)} a ${dailyAmount(m, s)}` });
-        prev = s;
-      }
-      if (del) ev.push({ date: del, kind: "del", label: "Se borró de la app", name: nm, text: "" });
+    for (const x of all) {
+      const k = normName(x.m.name);
+      (groups[k] ||= { name: x.m.name, psych: false, items: [] }).items.push(x);
+      if (!x.del) groups[k].name = x.m.name;
+      if (x.m.psych) groups[k].psych = true;
     }
-    return ev.sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
+    return Object.values(groups).map(g => {
+      const total = d => g.items.reduce((a, { m, del }) => addAmt(a, amountOn(m, d, del)), {});
+      const dates = [...new Set(g.items.flatMap(({ m, del }) => [...(m.schedule || []).map(s => s.from), ...(del ? [del] : [])]))].filter(d => d <= T).sort();
+      const events = []; let prev = {}, started = false, lastOn = null, endedOn = null;
+      for (const d of dates) {
+        const cur = total(d);
+        if (amtKey(cur) === amtKey(prev)) continue;
+        if (isZero(prev)) events.push({ date: d, kind: started ? "resume" : "start", label: started ? "Retomó" : "Empezó", text: amtText(cur) });
+        else if (isZero(cur)) events.push({ date: d, kind: "stop", label: "Dejó de tomar", text: `Tomaba ${amtText(prev)}` });
+        else events.push({ date: d, kind: "change", label: "Cambio de dosis", text: `De ${amtText(prev)} a ${amtText(cur)}` });
+        if (!isZero(cur)) { started = true; lastOn = cur; endedOn = null; } else endedOn = d;
+        prev = cur;
+      }
+      return { ...g, today: total(T), lastOn, endedOn, events };
+    });
   }
   function renderHist(T) {
     const out = $("#histOut");
-    const name = m => `<strong>${esc(m.name)}</strong>`;
-    const current = meds.filter(m => !suspendedOn(m, T) && perDayOn(m, T) > 0).sort((a, b) => a.name.localeCompare(b.name));
-    const before = [...meds.filter(m => suspendedOn(m, T)).map(m => ({ m, since: suspendedOn(m, T).from })),
-      ...archived.map(m => ({ m, since: m.deletedOn }))].sort((a, b) => a.m.name.localeCompare(b.m.name));
-    const ev = histEvents(T);
+    const gs = histGroups(T).sort((a, b) => a.name.localeCompare(b.name));
+    const current = gs.filter(g => !isZero(g.today));
+    const before = gs.filter(g => isZero(g.today) && g.lastOn && g.endedOn);
+    const ev = gs.flatMap(g => g.events.map(e => ({ ...e, name: g.name }))).sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
     const byDate = {}; ev.forEach(e => (byDate[e.date] ||= []).push(e));
     out.innerHTML = `<div class="print-only"><h2>Historial de medicación</h2><p class="muted">Generado el ${esc(fmtDate(T, { day: "numeric", month: "long", year: "numeric" }))}</p></div>
       <div class="panel"><h3>Toma actualmente</h3>
-        ${current.length ? current.map(m => `<div class="pill-row"><div>${name(m)}${m.psych ? ` <span class="chip psy">Psiquiátrico</span>` : ""}<div class="small muted">${esc(dailyAmount(m, currentSchedule(m, T)))}</div></div></div>`).join("") : `<p class="muted small" style="margin:0">Nada cargado.</p>`}</div>
-      ${before.length ? `<div class="panel"><h3>Tomaba antes</h3>${before.map(({ m, since }) => {
-          const last = lastActive(m);
-          return `<div class="pill-row"><div>${name(m)}<div class="small muted">${last ? esc(dailyAmount(m, last)) + " · " : ""}hasta el ${esc(fmtDate(since, { day: "numeric", month: "short", year: "numeric" }))}</div></div></div>`;
-        }).join("")}</div>` : ""}
+        ${current.length ? current.map(g => `<div class="pill-row"><div><strong>${esc(g.name)}</strong>${g.psych ? ` <span class="chip psy">Psiquiátrico</span>` : ""}<div class="small muted">${esc(amtText(g.today))}</div></div></div>`).join("") : `<p class="muted small" style="margin:0">Nada cargado.</p>`}</div>
+      ${before.length ? `<div class="panel"><h3>Tomaba antes</h3>${before.map(g => `<div class="pill-row"><div><strong>${esc(g.name)}</strong><div class="small muted">${esc(amtText(g.lastOn))} · hasta el ${esc(fmtDate(g.endedOn, { day: "numeric", month: "short", year: "numeric" }))}</div></div></div>`).join("")}</div>` : ""}
       <div class="panel"><h3>Cambios</h3>
         ${ev.length ? Object.entries(byDate).map(([d, items]) => `<div class="hist-day"><div class="label">${esc(fmtDate(d, { weekday: "short", day: "numeric", month: "short", year: "numeric" }))}</div>
           ${items.map(e => `<div class="hist-ev"><span class="k ${e.kind}">${esc(e.label)}</span><span><strong>${esc(e.name)}</strong></span>${e.text ? `<span class="d small muted">${esc(e.text)}</span>` : ""}</div>`).join("")}</div>`).join('<hr style="border:0;border-top:1px solid var(--line);margin:4px 0">')
