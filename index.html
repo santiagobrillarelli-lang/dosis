@@ -410,12 +410,9 @@ const LocalDB = (() => {
 
     // resumen
     const crit = rows.filter(r => level(r.c.days) === "crit").length;
-    const warn = rows.filter(r => level(r.c.days) === "warn").length;
     let sum = "";
     if (meds.length) {
-      if (crit) sum += `<span class="chip crit"><span class="dot"></span>${crit} en 7 días o menos</span>`;
-      if (warn) sum += `<span class="chip warn"><span class="dot"></span>${warn} en 3 semanas</span>`;
-      if (!crit && !warn) sum += `<span class="chip ok"><span class="dot"></span>Todo cubierto por 3 semanas</span>`;
+      if (crit) sum += `<span class="chip crit"><span class="dot"></span>${crit} ${crit === 1 ? "se acaba" : "se acaban"} esta semana</span>`;
     }
     $("#summary").innerHTML = sum;
 
