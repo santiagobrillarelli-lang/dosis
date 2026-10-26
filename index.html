@@ -58,7 +58,7 @@ h3 { font-size: 1.05rem; font-weight: 600; }
 
 h1.brand { display: flex; align-items: center; gap: 10px; }
 h1.brand img { width: 40px; height: 40px; border-radius: 10px; flex: none; }
-header.top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .today { font-size: .95rem; color: var(--muted); }
 
 .tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 4px; }
@@ -84,7 +84,6 @@ header.top { display: flex; align-items: flex-end; justify-content: space-betwee
   .print-only { display: block; }
   .panel { box-shadow: none; }
   .hist-day, .pill-row { break-inside: avoid; }
-  #todayLabel { display: none; }
 }
 .chip.gen { background: var(--gen-soft); color: var(--gen); }
 .chip.plain { background: var(--accent-soft); color: var(--ink); font-weight: 400; }
@@ -161,7 +160,6 @@ textarea { min-height: 70px; resize: vertical; }
   <header class="top">
     <div>
       <h1 class="brand"><img src="icon.svg" alt="" width="40" height="40">Dosis</h1>
-      <div class="today" id="todayLabel"></div>
     </div>
     <div class="summary" id="summary"></div>
   </header>
@@ -404,7 +402,6 @@ const LocalDB = (() => {
 
   function render() {
     const T = todayStr();
-    $("#todayLabel").textContent = "Hoy, " + fmtDate(T, { weekday: "long", day: "numeric", month: "long" });
     const rows = meds.map(m => ({ m, c: coverage(m, T) }));
     rows.sort((a, b) => (a.c.days ?? 1e9) - (b.c.days ?? 1e9) || a.m.name.localeCompare(b.m.name));
 
@@ -412,7 +409,7 @@ const LocalDB = (() => {
     const crit = rows.filter(r => level(r.c.days) === "crit").length;
     let sum = "";
     if (meds.length) {
-      if (crit) sum += `<span class="chip crit"><span class="dot"></span>${crit} ${crit === 1 ? "se acaba" : "se acaban"} esta semana</span>`;
+      if (crit) sum += `<span class="chip crit">⚠ Reponer ${crit} ${crit === 1 ? "medicamento" : "medicamentos"}</span>`;
     }
     $("#summary").innerHTML = sum;
 
