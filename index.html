@@ -331,7 +331,7 @@ const LocalDB = (() => {
 
   // ---------- estado ----------
   let db = null, meds = [], settings = {}, tab = "stock", doctorSel = "Todos", stockFilter = 0;
-  try { const f = +localStorage.getItem("dosis.stockFilter"); if (f === 7 || f === 21) stockFilter = f; } catch {}
+  try { const f = +localStorage.getItem("dosis.stockFilter"); if (f === 7 || f === 30) stockFilter = f; } catch {}
   try { const t = localStorage.getItem("dosis.tab"); if (t === "pedir" || t === "pill") tab = t; } catch {}
   const writeChains = {};
   function write(path, fn) {
@@ -398,10 +398,10 @@ const LocalDB = (() => {
       $("#emptyAdd").onclick = () => openEditor(null);
       return;
     }
-    const opts = [[0, "Todos"], [7, "1 semana"], [21, "3 semanas"]];
+    const opts = [[0, "Todos"], [7, "1 semana"], [30, "1 mes"]];
     const shown = stockFilter ? rows.filter(({ c }) => c.days !== null && c.days <= stockFilter) : rows;
     const filterBar = `<div class="seg" id="stockFilter" role="group" aria-label="Mostrar lo que se termina en">${opts.map(([n, l]) => `<button type="button" aria-pressed="${n === stockFilter}" data-f="${n}">${l}</button>`).join("")}</div>`;
-    const emptyMsg = `<div class="empty"><h2>Nada se termina en ${stockFilter === 7 ? "la próxima semana" : "las próximas 3 semanas"}</h2><p class="muted">Todos los medicamentos alcanzan más allá de esa fecha.</p></div>`;
+    const emptyMsg = `<div class="empty"><h2>Nada se termina en ${stockFilter === 7 ? "la próxima semana" : "el próximo mes"}</h2><p class="muted">Todos los medicamentos alcanzan más allá de esa fecha.</p></div>`;
     v.innerHTML = filterBar + (shown.length ? "" : emptyMsg) + shown.map(({ m, c }) => {
       const lv = level(c.days);
       const pct = c.days === Infinity ? 100 : Math.max(3, Math.min(100, (c.days / 60) * 100));
