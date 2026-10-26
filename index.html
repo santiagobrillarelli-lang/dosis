@@ -12,8 +12,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Atkinson+Hyperlegible+Mono:wght@400;600&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&display=swap">
 <style>
-.backup { display:flex; flex-direction:column; gap:10px; }
-.backup .row { display:flex; gap:10px; flex-wrap:wrap; }
+.top-right { display:flex; align-items:center; gap:8px; margin-left:auto; }
+.backup-row { display:flex; gap:10px; flex-wrap:wrap; }
 /* Layout: una columna estrecha tipo app de teléfono; tarjetas por medicamento ordenadas por urgencia, hoja inferior para editar. */
 :root {
   --bg: #eef2f1;
@@ -147,7 +147,7 @@ textarea { min-height: 70px; resize: vertical; }
       <h1 class="brand"><img src="icon.svg" alt="" width="40" height="40">Dosis</h1>
       <div class="today" id="todayLabel"></div>
     </div>
-    <div class="summary" id="summary"></div>
+    <div class="top-right"><div class="summary" id="summary"></div><button class="x" id="menuBtn" type="button" aria-label="Copia de seguridad">⋯</button></div>
   </header>
 
   <div class="tabs" role="tablist">
@@ -191,18 +191,10 @@ textarea { min-height: 70px; resize: vertical; }
     <div class="panel" id="orderPanel"></div>
   </section>
 
-  <section class="panel backup" id="backup">
-    <strong>Datos en este teléfono</strong>
-    <p class="hint">Todo se guarda solo en este teléfono, sin internet. Bajá una copia de vez en cuando por si cambiás o reseteás el celular.</p>
-    <div class="row">
-      <button class="btn" type="button" id="exportBtn">Bajar copia</button>
-      <button class="btn" type="button" id="importBtn">Cargar copia</button>
-      <input type="file" id="importFile" accept="application/json,.json" hidden>
-    </div>
-  </section>
 </div>
 
 <button class="btn primary fab" id="addBtn">+ Medicamento</button>
+<input type="file" id="importFile" accept="application/json,.json" hidden>
 <div id="sheetRoot"></div>
 <div id="toastRoot"></div>
 
@@ -726,19 +718,25 @@ const LocalDB = (() => {
     };
   }
 
-  $("#exportBtn").onclick = () => {
+  $("#menuBtn").onclick = () => {
+    const sh = openSheet(`<div class="sheet-head"><h2>Copia de seguridad</h2><button class="x" data-close aria-label="Cerrar">×</button></div>
+      <p class="hint">Los datos se guardan solo en este teléfono. Bajá una copia de vez en cuando por si cambiás o reseteás el celular.</p>
+      <div class="backup-row"><button class="btn" type="button" id="exportBtn">Bajar copia</button><button class="btn" type="button" id="importBtn">Cargar copia</button></div>`);
+    sh.querySelector("#exportBtn").onclick = exportCopy;
+    sh.querySelector("#importBtn").onclick = () => $("#importFile").click();
+  };
+  const exportCopy = () => {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([LocalDB.exportJSON()], { type: "application/json" }));
     a.download = `dosis-copia-${todayStr()}.json`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   };
-  $("#importBtn").onclick = () => $("#importFile").click();
   $("#importFile").onchange = async e => {
     const f = e.target.files[0]; e.target.value = "";
     if (!f) return;
     if (!confirm("Esto reemplaza todos los datos de este teléfono por los de la copia. ¿Seguir?")) return;
-    try { const n = LocalDB.importJSON(await f.text()); toast(`Copia cargada: ${n} medicamento${n === 1 ? "" : "s"}`); }
+    try { const n = LocalDB.importJSON(await f.text()); closeSheet(); toast(`Copia cargada: ${n} medicamento${n === 1 ? "" : "s"}`); }
     catch { toast("Ese archivo no es una copia de Dosis."); }
   };
 
