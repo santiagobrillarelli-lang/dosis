@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#17735a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Dosis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Atkinson+Hyperlegible+Mono:wght@400;600&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&display=swap">
+<style>
+.backup { display:flex; flex-direction:column; gap:10px; }
+.backup .row { display:flex; gap:10px; flex-wrap:wrap; }
+/* Layout: una columna estrecha tipo app de teléfono; tarjetas por medicamento ordenadas por urgencia, hoja inferior para editar. */
+:root {
+  --bg: #eef2f1;
+  --surface: #ffffff;
+  --ink: #10302c;
+  --muted: #5b716d;
+  --line: #d3dedb;
+  --accent: #17735a;
+  --accent-ink: #ffffff;
+  --accent-soft: #dcefe8;
+  --ok: #2f7d4f;   --ok-soft: #e1f2e7;
+  --warn: #a35f00; --warn-soft: #fbedd3;
+  --crit: #b3261e; --crit-soft: #fbe1de;
+  --psy: #5a4bb0;  --psy-soft: #e9e5fa;
+  --shadow: 0 1px 2px rgba(16,48,44,.06), 0 4px 16px rgba(16,48,44,.05);
+  --f-display: "Bricolage Grotesque", "Atkinson Hyperlegible", system-ui, sans-serif;
+  --f-body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-num: "Atkinson Hyperlegible Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0d1a18; --surface: #152724; --ink: #e3efec; --muted: #93aaa5; --line: #29403b;
+  --accent: #4fc39c; --accent-ink: #062019; --accent-soft: #173a31;
+  --ok: #6fd39a; --ok-soft: #173627; --warn: #f0b45a; --warn-soft: #3a2b12; --crit: #ff8a80; --crit-soft: #42201d;
+  --psy: #b4a8ff; --psy-soft: #2a2550; --shadow: none; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0d1a18; --surface: #152724; --ink: #e3efec; --muted: #93aaa5; --line: #29403b;
+  --accent: #4fc39c; --accent-ink: #062019; --accent-soft: #173a31;
+  --ok: #6fd39a; --ok-soft: #173627; --warn: #f0b45a; --warn-soft: #3a2b12; --crit: #ff8a80; --crit-soft: #42201d;
+  --psy: #b4a8ff; --psy-soft: #2a2550; --shadow: none; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font: 16px/1.45 var(--f-body); }
+.wrap { max-width: 640px; margin: 0 auto; padding-block: 20px 120px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 18px; }
+h1, h2, h3 { font-family: var(--f-display); margin: 0; text-wrap: balance; letter-spacing: -.01em; }
+h1 { font-size: 2rem; font-weight: 800; }
+h2 { font-size: 1.25rem; font-weight: 600; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+.num { font-family: var(--f-num); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.small { font-size: .875rem; }
+.label { font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; }
+
+header.top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.today { font-size: .95rem; color: var(--muted); }
+
+.tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 4px; }
+.tabs button { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: 700 .95rem var(--f-body); padding: 10px 12px; border-radius: 999px; cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
+
+.summary { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: .82rem; font-weight: 700; white-space: nowrap; }
+.chip.ok { background: var(--ok-soft); color: var(--ok); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); }
+.chip.crit { background: var(--crit-soft); color: var(--crit); }
+.chip.psy { background: var(--psy-soft); color: var(--psy); }
+.chip.plain { background: var(--accent-soft); color: var(--ink); font-weight: 400; }
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+
+.list { display: flex; flex-direction: column; gap: 10px; }
+.med { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 14px 16px; box-shadow: var(--shadow); display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; cursor: pointer; text-align: left; color: inherit; font: inherit; width: 100%; }
+.med:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.med .name { min-width: 0; }
+.med .name strong { font-size: 1.08rem; }
+.med .left { text-align: right; }
+.med .left .big { font-family: var(--f-num); font-size: 1.6rem; font-weight: 600; line-height: 1; }
+.med .meta { grid-column: 1 / -1; display: flex; gap: 6px 12px; flex-wrap: wrap; align-items: center; font-size: .9rem; color: var(--muted); }
+.bar { grid-column: 1 / -1; height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.bar > i { display: block; height: 100%; border-radius: 999px; background: var(--ok); }
+.bar.warn > i { background: var(--warn); } .bar.crit > i { background: var(--crit); }
+
+.empty { background: var(--surface); border: 1px dashed var(--line); border-radius: 18px; padding: 28px 20px; text-align: center; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+
+.btn { border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 700 .95rem var(--f-body); padding: 11px 16px; border-radius: 12px; cursor: pointer; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.danger { color: var(--crit); }
+.btn.small { padding: 7px 12px; font-size: .85rem; }
+.btn:disabled { opacity: .5; cursor: default; }
+.fab { position: fixed; right: max(18px, calc(env(safe-area-inset-right, 0px) + 18px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); z-index: 5; border-radius: 999px; padding: 15px 22px; box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.row { display: flex; gap: 12px; flex-wrap: wrap; }
+.row > .field { flex: 1 1 140px; min-width: 0; }
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field > span { font-size: .85rem; font-weight: 700; color: var(--muted); }
+input, select, textarea { font: 16px var(--f-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; width: 100%; }
+textarea { min-height: 70px; resize: vertical; }
+.check { display: flex; gap: 10px; align-items: center; font-weight: 700; }
+.check input { width: 22px; height: 22px; accent-color: var(--accent); }
+.hint { font-size: .85rem; color: var(--muted); }
+
+.order-group { display: flex; flex-direction: column; gap: 8px; }
+.order-item { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.order-item:first-of-type { border-top: 0; }
+.order-item .qty { text-align: right; font-family: var(--f-num); font-weight: 600; }
+.slot-card h3 { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.pill-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 9px 0; border-top: 1px solid var(--line); align-items: baseline; }
+.pill-row:first-of-type { border-top: 0; }
+.pill-row .q { font-family: var(--f-num); font-weight: 600; font-size: 1.15rem; text-align: right; }
+.pill-row .sub { grid-column: 1 / -1; font-size: .85rem; color: var(--muted); }
+.slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.order-item .why { grid-column: 1 / -1; font-size: .88rem; color: var(--muted); }
+
+/* hoja inferior */
+.sheet-back { position: fixed; inset: 0; background: rgba(5,20,18,.45); z-index: 20; display: flex; align-items: flex-end; justify-content: center; }
+.sheet { background: var(--bg); width: 100%; max-width: 640px; max-height: 92%; overflow-y: auto; border-radius: 22px 22px 0 0; padding-block: 18px calc(env(safe-area-inset-bottom, 0px) + 24px); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 14px; }
+.sheet-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.x { border: 0; background: var(--surface); color: var(--ink); width: 40px; height: 40px; border-radius: 50%; font-size: 1.3rem; cursor: pointer; flex: none; }
+.hist { display: flex; flex-direction: column; gap: 0; }
+.hist > div { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: .92rem; align-items: center; }
+.hist > div:first-child { border-top: 0; }
+.hist .when { color: var(--muted); font-family: var(--f-num); font-size: .85rem; white-space: nowrap; }
+.linkbtn { border: 0; background: none; color: var(--crit); font: 700 .8rem var(--f-body); cursor: pointer; padding: 4px; }
+.seg { display: flex; gap: 6px; flex-wrap: wrap; }
+.seg button { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 8px 14px; font: 700 .9rem var(--f-body); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.confirm { background: var(--crit-soft); color: var(--ink); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 86px); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 12px; z-index: 40; font-weight: 700; max-width: calc(100% - 32px); }
+.notice { background: var(--warn-soft); color: var(--ink); border-radius: 14px; padding: 12px 14px; font-size: .92rem; }
+@media (prefers-reduced-motion: no-preference) { .sheet { animation: up .22s ease-out; } @keyframes up { from { transform: translateY(24px); opacity: .6; } } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Dosis</h1>
+      <div class="today" id="todayLabel"></div>
+    </div>
+    <div class="summary" id="summary"></div>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tab-stock" aria-selected="true" data-tab="stock">Stock</button>
+    <button role="tab" id="tab-pill" aria-selected="false" data-tab="pill">Pastillero</button>
+    <button role="tab" id="tab-pedir" aria-selected="false" data-tab="pedir">Pedir</button>
+  </div>
+
+  <div id="notice" class="notice" hidden></div>
+
+  <section id="view-stock" class="list">
+    <div class="empty" id="loading">
+      <h2>Cargando medicamentos…</h2>
+      <p class="muted small">Acá aparece cada medicamento con lo que queda y para cuántos días alcanza.</p>
+    </div>
+  </section>
+
+  <section id="view-pill" hidden style="display:flex;flex-direction:column;gap:14px">
+    <div class="panel">
+      <div class="row">
+        <label class="field"><span>Armar desde</span><input type="date" id="pillFrom"></label>
+        <label class="field"><span>Cantidad de días</span><input id="pillDays" inputmode="numeric" value="7"></label>
+      </div>
+      <div class="seg" id="pillQuick"><button type="button" data-n="7">1 semana</button><button type="button" data-n="14">2 semanas</button><button type="button" data-n="28">4 semanas</button></div>
+    </div>
+    <div id="pillOut" style="display:flex;flex-direction:column;gap:14px"></div>
+  </section>
+
+  <section id="view-pedir" hidden style="display:flex;flex-direction:column;gap:14px">
+    <div class="panel">
+      <div class="row">
+        <label class="field"><span>Fecha de la consulta</span><input type="date" id="visitDate"></label>
+        <label class="field"><span>Que alcance hasta</span><input type="date" id="coverDate"></label>
+      </div>
+      <div class="field">
+        <span>Mostrar</span>
+        <div class="seg" id="doctorFilter"></div>
+      </div>
+      <p class="hint">Lista lo que no llega a la fecha elegida, contando la dosis que toma cada día y los cambios de dosis ya cargados.</p>
+    </div>
+    <div class="panel" id="orderPanel"></div>
+  </section>
+
+  <section class="panel backup" id="backup">
+    <strong>Datos en este teléfono</strong>
+    <p class="hint">Todo se guarda solo en este teléfono, sin internet. Bajá una copia de vez en cuando por si cambiás o reseteás el celular.</p>
+    <div class="row">
+      <button class="btn" type="button" id="exportBtn">Bajar copia</button>
+      <button class="btn" type="button" id="importBtn">Cargar copia</button>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+    </div>
+  </section>
+</div>
+
+<button class="btn primary fab" id="addBtn">+ Medicamento</button>
+<div id="sheetRoot"></div>
+<div id="toastRoot"></div>
+
+<script>
+(() => {
+// ---------- almacenamiento local (reemplaza la base de claude.ai) ----------
+const LocalDB = (() => {
+  const KEY = "dosis.data.v1";
+  const SEED = {"meds": {}, "settings": {}};
+  let state;
+  try { state = JSON.parse(localStorage.getItem(KEY)); } catch {}
+  if (!state || typeof state !== "object") { state = SEED; try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} }
+  const subs = new Set();
+  const clone = o => JSON.parse(JSON.stringify(o));
+  const emit = () => subs.forEach(f => f());
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { const er = new Error("quota"); er.code = "quota_exceeded"; throw er; } emit(); };
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  const docRef = (c, id) => ({
+    id,
+    async set(data) { (state[c] ||= {})[id] = clone(data); save(); },
+    async delete() { if (state[c]) delete state[c][id]; save(); },
+    onSnapshot(cb) {
+      const f = () => { const v = state[c]?.[id]; cb({ id, exists: !!v, data: () => clone(v || {}) }); };
+      subs.add(f); f(); return () => subs.delete(f);
+    }
+  });
+  const collection = c => ({
+    doc: id => docRef(c, id || newId()),
+    onSnapshot(cb) {
+      const f = () => cb({ docs: Object.entries(state[c] || {}).map(([id, v]) => ({ id, data: () => clone(v) })) });
+      subs.add(f); f(); return () => subs.delete(f);
+    }
+  });
+  window.addEventListener("storage", e => { if (e.key === KEY) { try { state = JSON.parse(e.newValue) || {}; } catch {} emit(); } });
+  return {
+    collection,
+    doc: path => { const [c, id] = path.split("/"); return docRef(c, id); },
+    exportJSON: () => JSON.stringify({ app: "dosis", version: 1, exportedAt: new Date().toISOString(), data: state }, null, 2),
+    importJSON(text) {
+      const o = JSON.parse(text); const d = o && o.data ? o.data : o;
+      if (!d || typeof d.meds !== "object") throw new Error("formato");
+      state = { meds: d.meds || {}, settings: d.settings || {} }; save();
+      return Object.keys(state.meds).length;
+    }
+  };
+})();
+
+  // ---------- fechas (todo en fecha local, formato AAAA-MM-DD) ----------
+  const pad = n => String(n).padStart(2, "0");
+  const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; };
+  const toUTC = s => { const [y,m,d] = s.split("-").map(Number); return Date.UTC(y, m-1, d); };
+  const fromUTC = t => { const d = new Date(t); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`; };
+  const addDays = (s, n) => fromUTC(toUTC(s) + n * 864e5);
+  const diffDays = (a, b) => Math.round((toUTC(b) - toUTC(a)) / 864e5);
+  const fmtDate = (s, opts = { weekday: "short", day: "numeric", month: "short" }) =>
+    new Intl.DateTimeFormat("es-AR", { ...opts, timeZone: "UTC" }).format(new Date(toUTC(s)));
+  const fmtShort = s => fmtDate(s, { day: "numeric", month: "short" });
+
+  // ---------- números ----------
+  const parseNum = v => { const n = parseFloat(String(v).replace(",", ".").replace("½", ".5").replace("¼", ".25").replace("¾", ".75")); return isFinite(n) ? n : NaN; };
+  const fmtQty = x => {
+    if (!isFinite(x)) return "–";
+    const neg = x < 0; x = Math.abs(Math.round(x * 100) / 100);
+    const w = Math.floor(x), f = Math.round((x - w) * 100) / 100;
+    const map = { 0.25: "¼", 0.5: "½", 0.75: "¾" };
+    let s = f === 0 ? String(w) : map[f] ? (w ? w : "") + map[f] : String(x).replace(".", ",");
+    return (neg ? "−" : "") + s;
+  };
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  // ---------- modelo de stock ----------
+  // Un conteo es lo que queda al final de ese día (ya descontadas las tomas del día).
+  // El consumo empieza al día siguiente y sigue el esquema de dosis vigente en cada fecha.
+  const sortBy = (arr, k) => [...(arr || [])].sort((a, b) => a[k] < b[k] ? -1 : a[k] > b[k] ? 1 : 0);
+  function perDayOn(m, d) {
+    let v = 0;
+    for (const s of sortBy(m.schedule, "from")) { if (s.from <= d) v = s.perDay; else break; }
+    return v;
+  }
+  function currentSchedule(m, d) {
+    let cur = null;
+    for (const s of sortBy(m.schedule, "from")) { if (s.from <= d) cur = s; else break; }
+    return cur;
+  }
+  function lastCount(m, d) {
+    let c = null;
+    for (const x of sortBy(m.counts, "date")) { if (x.date <= d) c = x; else break; }
+    return c;
+  }
+  function stockAt(m, T) {
+    const c = lastCount(m, T);
+    if (!c) return null;
+    let q = c.qty;
+    for (const a of m.adds || []) if (a.date > c.date && a.date <= T) q += a.qty;
+    for (let d = addDays(c.date, 1); d <= T; d = addDays(d, 1)) q -= perDayOn(m, d);
+    return q;
+  }
+  // Último día que el stock cubre completo, mirando hacia adelante hasta 3 años.
+  function coverage(m, T) {
+    let s = stockAt(m, T);
+    if (s === null) return { stock: null, until: null, days: null };
+    const futureAdds = (m.adds || []).filter(a => a.date > T);
+    let d = T, n = 0;
+    while (n < 1100) {
+      const next = addDays(d, 1);
+      for (const a of futureAdds) if (a.date === next) s += a.qty;
+      const need = perDayOn(m, next);
+      if (s - need < -1e-9) break;
+      s -= need; d = next; n++;
+    }
+    const today = stockAt(m, T);
+    return { stock: today, until: n >= 1100 ? null : d, days: n >= 1100 ? Infinity : n };
+  }
+  function needUntil(m, from, until) {
+    // cuántas unidades faltan para cubrir hasta `until` inclusive
+    let s = stockAt(m, from);
+    if (s === null) return 0;
+    for (const a of m.adds || []) if (a.date > from && a.date <= until) s += a.qty;
+    let use = 0;
+    for (let d = addDays(from, 1); d <= until; d = addDays(d, 1)) use += perDayOn(m, d);
+    return Math.max(0, use - s);
+  }
+  const SLOTS = [["ayunas", "En ayunas"], ["manana", "Mañana"], ["noche", "Noche"]];
+  const hasSlots = s => s && SLOTS.some(([k]) => typeof s[k] === "number");
+  function slotText(s) {
+    if (!s) return "";
+    if (!hasSlots(s)) return s.howto || "";
+    return SLOTS.filter(([k]) => s[k] > 0).map(([k, l]) => `${l} ${fmtQty(s[k])}`).join(" · ");
+  }
+  function scheduleLine(s) {
+    if (!s || !s.perDay) return "Sin dosis diaria";
+    const t = slotText(s);
+    return `${fmtQty(s.perDay)} por día${t ? " · " + t : ""}`;
+  }
+  const slotInputs = (cur) => `<div class="slots">${SLOTS.map(([k, l]) => `<label class="field"><span>${l}</span><input data-slot="${k}" inputmode="decimal" placeholder="0" value="${cur && hasSlots(cur) && cur[k] ? String(cur[k]).replace(".", ",") : ""}"></label>`).join("")}</div>`;
+  function readSlots(root) {
+    const o = {}; let bad = false, tot = 0;
+    root.querySelectorAll("[data-slot]").forEach(i => { const v = i.value.trim() === "" ? 0 : parseNum(i.value); if (!(v >= 0)) bad = true; o[i.dataset.slot] = v || 0; tot += v || 0; });
+    if (bad) return null;
+    o.perDay = Math.round(tot * 1000) / 1000;
+    return o;
+  }
+  const level = days => days === null ? "plain" : days <= 7 ? "crit" : days <= 21 ? "warn" : "ok";
+
+  // ---------- estado ----------
+  let db = null, meds = [], settings = {}, tab = "stock", doctorSel = "Todos";
+  try { const t = localStorage.getItem("dosis.tab"); if (t === "pedir" || t === "pill") tab = t; } catch {}
+  const writeChains = {};
+  function write(path, fn) {
+    const prev = writeChains[path] || Promise.resolve();
+    const p = prev.then(fn).catch(e => { toast(e && e.code === "quota_exceeded" ? "No hay más lugar para guardar datos." : "No se pudo guardar. Probá de nuevo."); throw e; });
+    writeChains[path] = p.catch(() => {});
+    return p;
+  }
+  let editing = false;
+  const saveMed = (m) => {
+    editing = false;
+    meds = meds.some(x => x.id === m.id) ? meds.map(x => x.id === m.id ? m : x) : [...meds, m];
+    render(); if (openDetailId === m.id) openDetail(m.id, true);
+    const { id, ...body } = m; return write("meds/" + id, () => db.collection("meds").doc(id).set(JSON.parse(JSON.stringify(body)))); };
+
+  // ---------- UI ----------
+  const $ = s => document.querySelector(s);
+  function toast(msg) {
+    const r = $("#toastRoot"); r.innerHTML = `<div class="toast" role="status">${esc(msg)}</div>`;
+    clearTimeout(toast.t); toast.t = setTimeout(() => r.innerHTML = "", 2600);
+  }
+  function setTab(t) {
+    tab = t;
+    try { localStorage.setItem("dosis.tab", t); } catch {}
+    document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === t));
+    $("#view-stock").hidden = t !== "stock";
+    $("#view-pedir").hidden = t !== "pedir";
+    $("#view-pill").hidden = t !== "pill";
+    render();
+  }
+  document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => setTab(b.dataset.tab));
+
+  const doseText = (m, T) => scheduleLine(currentSchedule(m, T));
+  const unitOf = m => m.unit || "comprimidos";
+
+  function render() {
+    const T = todayStr();
+    $("#todayLabel").textContent = "Hoy, " + fmtDate(T, { weekday: "long", day: "numeric", month: "long" });
+    const rows = meds.map(m => ({ m, c: coverage(m, T) }));
+    rows.sort((a, b) => (a.c.days ?? 1e9) - (b.c.days ?? 1e9) || a.m.name.localeCompare(b.m.name));
+
+    // resumen
+    const crit = rows.filter(r => level(r.c.days) === "crit").length;
+    const warn = rows.filter(r => level(r.c.days) === "warn").length;
+    let sum = "";
+    if (meds.length) {
+      if (crit) sum += `<span class="chip crit"><span class="dot"></span>${crit} en 7 días o menos</span>`;
+      if (warn) sum += `<span class="chip warn"><span class="dot"></span>${warn} en 3 semanas</span>`;
+      if (!crit && !warn) sum += `<span class="chip ok"><span class="dot"></span>Todo cubierto por 3 semanas</span>`;
+    }
+    $("#summary").innerHTML = sum;
+
+    if (tab === "stock") renderStock(rows, T); else if (tab === "pill") renderPill(T); else renderOrder(rows, T);
+  }
+
+  function renderStock(rows, T) {
+    const v = $("#view-stock");
+    if (!db) return;
+    if (!rows.length) {
+      v.innerHTML = `<div class="empty">
+        <h2>Todavía no hay medicamentos</h2>
+        <p class="muted">Cargá cada medicamento con lo que hay hoy y cuánto toma por día. La app descuenta sola día a día.</p>
+        <button class="btn primary" id="emptyAdd">Agregar el primero</button></div>`;
+      $("#emptyAdd").onclick = () => openEditor(null);
+      return;
+    }
+    v.innerHTML = rows.map(({ m, c }) => {
+      const lv = level(c.days);
+      const pct = c.days === Infinity ? 100 : Math.max(3, Math.min(100, (c.days / 60) * 100));
+      const until = c.days === Infinity ? "No se consume" : c.days === null ? "Falta cargar stock"
+        : c.stock < 0 ? "Se terminó: registrá una compra o recontá"
+        : c.days === 0 ? "No alcanza para mañana" : `Alcanza ${c.days} ${c.days === 1 ? "día" : "días"} · hasta el ${fmtShort(c.until)}`;
+      return `<button class="med" data-id="${esc(m.id)}">
+        <div class="name"><strong>${esc(m.name)}</strong>${m.strength ? ` <span class="muted">${esc(m.strength)}</span>` : ""}
+          <div class="small muted">${esc(doseText(m, T))}</div></div>
+        <div class="left"><div class="big">${c.stock === null ? "–" : fmtQty(Math.max(0, c.stock))}</div><div class="small muted">${esc(unitOf(m))}</div></div>
+        <div class="bar ${lv}" aria-hidden="true"><i style="width:${pct}%"></i></div>
+        <div class="meta"><span class="chip ${lv}">${esc(until)}</span>
+          ${m.psych ? `<span class="chip psy">Psiquiátrico</span>` : ""}
+          ${m.doctor ? `<span>${esc(m.doctor)}</span>` : ""}</div>
+      </button>`;
+    }).join("");
+    v.querySelectorAll(".med").forEach(b => b.onclick = () => openDetail(b.dataset.id));
+  }
+
+  function renderOrder(rows, T) {
+    const visit = settings.visitDate || addDays(T, 7);
+    const cover = settings.coverDate && settings.coverDate >= visit ? settings.coverDate : addDays(visit, 30);
+    const vi = $("#visitDate"), ci = $("#coverDate");
+    if (document.activeElement !== vi) vi.value = visit;
+    if (document.activeElement !== ci) ci.value = cover;
+
+    const doctors = ["Todos", "Psiquiátricos", "No psiquiátricos"];
+    if (!doctors.includes(doctorSel)) doctorSel = "Todos";
+    const groupOf = m => m.psych ? "Psiquiátricos" : "No psiquiátricos";
+    $("#doctorFilter").innerHTML = doctors.map(d => `<button aria-pressed="${d === doctorSel}" data-d="${esc(d)}">${esc(d)}</button>`).join("");
+    $("#doctorFilter").querySelectorAll("button").forEach(b => b.onclick = () => { doctorSel = b.dataset.d; render(); });
+
+    const p = $("#orderPanel");
+    if (!meds.length) { p.innerHTML = `<p class="muted">Cuando cargues medicamentos, acá vas a ver cuáles pedir en la consulta.</p>`; return; }
+    const list = rows.filter(r => (doctorSel === "Todos" || groupOf(r.m) === doctorSel) && r.c.days !== Infinity && r.c.until !== null && r.c.until < cover)
+      .map(r => {
+        const need = needUntil(r.m, T, cover);
+        let use = 0; for (let d = addDays(T, 1); d <= cover; d = addDays(d, 1)) use += perDayOn(r.m, d);
+        const have = Math.max(0, use - need);
+        const boxes = r.m.perBox > 0 ? Math.ceil(need / r.m.perBox) : null;
+        return { ...r, need, use, have, days: diffDays(T, cover), boxes, beforeVisit: r.c.until < visit };
+      });
+    if (!list.length) {
+      p.innerHTML = `<h2>No hace falta pedir nada</h2><p class="muted">Con lo que hay, todo alcanza hasta el ${esc(fmtDate(cover))}.</p>`;
+      return;
+    }
+    const groups = {};
+    list.sort((a, b) => (b.m.psych ? 1 : 0) - (a.m.psych ? 1 : 0));
+    list.forEach(x => (groups[groupOf(x.m)] ||= []).push(x));
+    p.innerHTML = `<div class="row" style="justify-content:space-between;align-items:center">
+        <h2>Pedir ${list.length} ${list.length === 1 ? "medicamento" : "medicamentos"}</h2>
+        <button class="btn small" id="copyOrder">Copiar lista</button></div>
+      <p class="hint" style="margin:0">Para cubrir hasta el ${esc(fmtDate(cover))}.</p>` +
+      Object.entries(groups).map(([doc, items]) => `<div class="order-group"><div class="label">${esc(doc)}</div>${items.map(x => `
+        <div class="order-item">
+          <div><strong>${esc(x.m.name)}</strong>${x.m.strength ? ` <span class="muted">${esc(x.m.strength)}</span>` : ""}
+            ${x.m.psych ? ` <span class="chip psy">Receta especial</span>` : ""}</div>
+          <div class="qty"><div class="label" style="font-family:var(--f-body)">A pedir</div>${fmtQty(Math.ceil(x.need))} ${esc(unitOf(x.m))}${x.boxes ? `<div class="small muted">${x.boxes} ${x.boxes === 1 ? "caja" : "cajas"}</div>` : ""}</div>
+          <div class="why">${x.c.stock < 0 || x.c.days === 0 ? "Ya no tiene." : `Alcanza hasta el ${esc(fmtShort(x.c.until))}`}${x.beforeVisit && x.c.days > 0 ? " · se termina antes de la consulta" : ""}</div>
+        </div>`).join("")}</div>`).join("");
+    $("#copyOrder").onclick = () => {
+      const txt = `Medicamentos para pedir (consulta ${fmtShort(visit)}, para cubrir hasta ${fmtShort(cover)}):\n` +
+        Object.entries(groups).map(([doc, items]) => `\n${doc}:\n` + items.map(x =>
+          `• ${x.m.name}${x.m.strength ? " " + x.m.strength : ""}: ${fmtQty(Math.ceil(x.need))} ${unitOf(x.m)}${x.boxes ? ` (${x.boxes} ${x.boxes === 1 ? "caja" : "cajas"})` : ""} — dosis ${doseText(x.m, T)}`).join("\n")).join("\n");
+      navigator.clipboard.writeText(txt).then(() => toast("Lista copiada"), () => {
+        openSheet(`<div class="sheet-head"><h2>Copiá la lista</h2><button class="x" data-close aria-label="Cerrar">×</button></div><textarea id="copyTxt" style="min-height:240px">${esc(txt)}</textarea>`);
+        const t = $("#copyTxt"); t.focus(); t.select();
+      });
+    };
+  }
+
+  // ---------- pastillero ----------
+  let pillFrom = null, pillDays = 7;
+  function renderPill(T) {
+    if (!pillFrom) pillFrom = addDays(T, 1);
+    const fi = $("#pillFrom"), di = $("#pillDays");
+    if (document.activeElement !== fi) fi.value = pillFrom;
+    if (document.activeElement !== di) di.value = pillDays;
+    $("#pillQuick").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.n === pillDays));
+    const out = $("#pillOut");
+    if (!meds.length) { out.innerHTML = `<div class="panel"><p class="muted" style="margin:0">Cuando cargues medicamentos, acá vas a ver qué poner en cada casillero.</p></div>`; return; }
+    const last = addDays(pillFrom, pillDays - 1);
+    const range = []; for (let d = pillFrom; d <= last; d = addDays(d, 1)) range.push(d);
+    const active = meds.map(m => {
+      const scheds = range.map(d => currentSchedule(m, d));
+      const changes = range.filter((d, i) => i > 0 && scheds[i] !== scheds[i - 1]);
+      const total = range.reduce((a, d) => a + perDayOn(m, d), 0);
+      const before = stockAt(m, addDays(pillFrom, -1));
+      return { m, s0: scheds[0], changes, total, before };
+    }).filter(x => x.total > 0).sort((a, b) => a.m.name.localeCompare(b.m.name));
+    const name = m => `<strong>${esc(m.name)}</strong>${m.strength ? ` <span class="muted">${esc(m.strength)}</span>` : ""}`;
+    const unassigned = active.filter(x => x.s0 && x.s0.perDay > 0 && !hasSlots(x.s0));
+    const cards = SLOTS.map(([k, l]) => {
+      const items = active.filter(x => x.s0 && hasSlots(x.s0) && x.s0[k] > 0);
+      const count = items.reduce((a, x) => a + x.s0[k], 0);
+      return `<div class="panel slot-card"><h3>${l}<span class="small muted">${items.length ? `${items.length} ${items.length === 1 ? "medicamento" : "medicamentos"} · ${fmtQty(count)} en total` : ""}</span></h3>
+        ${items.length ? items.map(x => `<div class="pill-row"><div>${name(x.m)}</div><div class="q">${fmtQty(x.s0[k])}</div>
+          ${x.changes.length ? `<div class="sub"><span class="chip warn">Cambia la dosis el ${esc(fmtShort(x.changes[0]))}</span></div>` : ""}</div>`).join("")
+          : `<p class="muted small" style="margin:0">Nada en esta toma.</p>`}</div>`;
+    }).join("");
+    const extra = unassigned.length ? `<div class="panel"><h3>Sin toma asignada</h3><p class="hint" style="margin:0">Cargá en qué toma va cada uno desde "Cambiar dosis".</p>
+      ${unassigned.map(x => `<div class="pill-row"><div>${name(x.m)}</div><div class="q">${fmtQty(x.s0.perDay)}/día</div></div>`).join("")}</div>` : "";
+    const totals = `<div class="panel"><h3>Total para ${pillDays} ${pillDays === 1 ? "día" : "días"}</h3><p class="hint" style="margin:0">Del ${esc(fmtShort(pillFrom))} al ${esc(fmtShort(last))}, con los cambios de dosis ya cargados.</p>
+      ${active.map(x => { const short = x.before !== null && x.before < x.total - 1e-9;
+        return `<div class="pill-row"><div>${name(x.m)}</div><div class="q">${fmtQty(x.total)}</div>
+        ${short ? `<div class="sub"><span class="chip crit">Hay ${fmtQty(Math.max(0, x.before))}, faltan ${fmtQty(x.total - Math.max(0, x.before))}</span></div>` : ""}</div>`; }).join("")}</div>`;
+    out.innerHTML = cards + extra + totals;
+  }
+  $("#pillFrom").onchange = () => { if ($("#pillFrom").value) { pillFrom = $("#pillFrom").value; render(); } };
+  $("#pillDays").onchange = () => { const n = Math.round(parseNum($("#pillDays").value)); if (n >= 1 && n <= 90) { pillDays = n; render(); } };
+  $("#pillQuick").querySelectorAll("button").forEach(b => b.onclick = () => { pillDays = +b.dataset.n; render(); });
+
+  let settingsTimer;
+  function saveSettings() {
+    const visit = $("#visitDate").value, cover = $("#coverDate").value;
+    if (!visit) return;
+    settings = { visitDate: visit, coverDate: cover && cover >= visit ? cover : addDays(visit, 30) };
+    render();
+    clearTimeout(settingsTimer);
+    settingsTimer = setTimeout(() => { if (db) write("settings/main", () => db.doc("settings/main").set(settings)); }, 600);
+  }
+  $("#visitDate").onchange = () => { $("#coverDate").value = addDays($("#visitDate").value, 30); saveSettings(); };
+  $("#coverDate").onchange = saveSettings;
+
+  // ---------- hojas ----------
+  function openSheet(html) {
+    const root = $("#sheetRoot");
+    root.innerHTML = `<div class="sheet-back"><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`;
+    const back = root.firstElementChild;
+    back.onclick = e => { if (e.target === back || e.target.closest("[data-close]")) closeSheet(); };
+    document.addEventListener("keydown", escClose);
+    return back.firstElementChild;
+  }
+  function closeSheet() { editing = false; $("#sheetRoot").innerHTML = ""; document.removeEventListener("keydown", escClose); openDetailId = null; }
+  function escClose(e) { if (e.key === "Escape") closeSheet(); }
+
+  const doctorOptions = () => [...new Set(meds.map(m => m.doctor).filter(Boolean))].map(d => `<option value="${esc(d)}">`).join("");
+
+  function openEditor(id) {
+    const m = id ? meds.find(x => x.id === id) : null;
+    const T = todayStr();
+    openDetailId = null; editing = true;
+    const sh = openSheet(`
+      <div class="sheet-head"><h2>${m ? "Editar datos" : "Nuevo medicamento"}</h2><button class="x" data-close aria-label="Cerrar">×</button></div>
+      <form id="medForm" class="panel">
+        <div class="row">
+          <label class="field" style="flex-basis:220px"><span>Nombre</span><input id="f-name" required placeholder="Ej.: Ibuprofeno" value="${esc(m?.name)}"></label>
+          <label class="field"><span>Concentración</span><input id="f-strength" placeholder="Ej.: 25 mg" value="${esc(m?.strength)}"></label>
+        </div>
+        <div class="row">
+          <label class="field"><span>Unidad</span><input id="f-unit" list="units" value="${esc(m?.unit || "comprimidos")}"></label>
+          <label class="field"><span>Unidades por caja</span><input id="f-box" inputmode="numeric" placeholder="Ej.: 30" value="${m?.perBox ?? ""}"></label>
+        </div>
+        <datalist id="units"><option value="comprimidos"><option value="cápsulas"><option value="gotas"><option value="ml"><option value="sobres"><option value="parches"></datalist>
+        <label class="field"><span>Médico que lo receta</span><input id="f-doctor" list="doctors" placeholder="Ej.: Psiquiatra, Clínico, Dra. Pérez" value="${esc(m?.doctor)}"></label>
+        <datalist id="doctors">${doctorOptions()}</datalist>
+        <label class="check"><input type="checkbox" id="f-psych" ${m?.psych ? "checked" : ""}> Psiquiátrico (receta especial)</label>
+        ${m ? "" : `
+        <div class="row">
+          <label class="field"><span>Cuánto hay hoy</span><input id="f-qty" inputmode="decimal" required placeholder="Ej.: 42"></label>
+        </div>
+        <div class="field"><span>Cuánto toma en cada toma</span>${slotInputs(null)}</div>
+        <p class="hint">Contá lo que queda después de las tomas de hoy. Se acepta ½ o 0,5. Dejá vacía la toma que no corresponde.</p>`}
+        <label class="field"><span>Notas</span><textarea id="f-notes" placeholder="Ej.: nombre comercial, farmacia, obra social">${esc(m?.notes)}</textarea></label>
+        <button class="btn primary" type="submit">${m ? "Guardar cambios" : "Agregar"}</button>
+      </form>`);
+    sh.querySelector("#f-name").focus();
+    sh.querySelector("#medForm").onsubmit = async e => {
+      e.preventDefault();
+      const base = {
+        name: $("#f-name").value.trim(), strength: $("#f-strength").value.trim(), unit: $("#f-unit").value.trim() || "comprimidos",
+        perBox: parseNum($("#f-box").value) || null, doctor: $("#f-doctor").value.trim(), psych: $("#f-psych").checked, notes: $("#f-notes").value.trim(),
+      };
+      if (!base.name) return;
+      if (m) {
+        openDetailId = m.id; await saveMed({ ...m, ...base }); toast("Guardado");
+      } else {
+        const qty = parseNum($("#f-qty").value), sl = readSlots(sh);
+        if (!(qty >= 0) || !sl) { toast("Revisá la cantidad y las dosis."); return; }
+        const id = db.collection("meds").doc().id;
+        const nm = { id, ...base, createdAt: new Date().toISOString(), counts: [{ date: T, qty }], adds: [],
+          schedule: [{ from: T, ...sl }] };
+        await saveMed(nm); toast("Agregado"); closeSheet();
+      }
+    };
+  }
+
+  let openDetailId = null;
+  function openDetail(id, keepScroll) {
+    const m = meds.find(x => x.id === id); if (!m) { closeSheet(); return; }
+    const T = todayStr(), c = coverage(m, T), lv = level(c.days);
+    const prevScroll = keepScroll ? document.querySelector(".sheet")?.scrollTop : 0;
+    openDetailId = id;
+    const sched = sortBy(m.schedule, "from").reverse();
+    const cur = currentSchedule(m, T);
+    const moves = [
+      ...(m.counts || []).map((x, i) => ({ kind: "count", i, date: x.date, text: `Conteo: ${fmtQty(x.qty)} ${unitOf(m)}` })),
+      ...(m.adds || []).map((x, i) => ({ kind: "add", i, date: x.date, text: `+ ${fmtQty(x.qty)} ${unitOf(m)}${x.note ? " · " + x.note : ""}` })),
+    ].sort((a, b) => a.date < b.date ? 1 : -1);
+    const sh = openSheet(`
+      <div class="sheet-head"><div><h2>${esc(m.name)} ${m.strength ? `<span class="muted">${esc(m.strength)}</span>` : ""}</h2>
+        <div class="small muted">${m.doctor ? esc(m.doctor) : "Sin médico asignado"}${m.psych ? " · Psiquiátrico" : ""}</div></div>
+        <button class="x" data-close aria-label="Cerrar">×</button></div>
+
+      <div class="panel">
+        <div class="row" style="justify-content:space-between;align-items:flex-end">
+          <div><div class="label">Quedan hoy</div><div class="num" style="font-size:2.2rem;font-weight:600;line-height:1.1">${c.stock === null ? "–" : fmtQty(Math.max(0, c.stock))} <span class="small muted" style="font-family:var(--f-body)">${esc(unitOf(m))}</span></div></div>
+          <span class="chip ${lv}">${c.days === Infinity ? "No se consume" : c.stock < 0 ? "Se terminó" : `Alcanza hasta el ${esc(fmtShort(c.until))}`}</span>
+        </div>
+        ${c.stock < 0 ? `<p class="hint">Según la dosis, faltan ${fmtQty(-c.stock)} ${esc(unitOf(m))}. Registrá la compra o hacé un recuento.</p>` : ""}
+        <div class="row">
+          <button class="btn primary" id="d-add">Registrar compra</button>
+          <button class="btn" id="d-count">Recontar</button>
+        </div>
+        <div id="d-stockForm"></div>
+      </div>
+
+      <div class="panel">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <div><div class="label">Dosis actual</div><div style="font-weight:700">${esc(doseText(m, T))}</div></div>
+          <button class="btn" id="d-dose">Cambiar dosis</button>
+        </div>
+        <div id="d-doseForm"></div>
+        <div><div class="label" style="margin-bottom:4px">Historial de dosis</div>
+          <div class="hist">${sched.map(s => `<div><span>${esc(scheduleLine(s))}${s === cur ? ` <span class="chip ok">vigente</span>` : s.from > T ? ` <span class="chip plain">desde ${esc(fmtShort(s.from))}</span>` : ""}</span>
+            <span style="display:flex;gap:6px;align-items:center"><span class="when">${esc(fmtShort(s.from))}</span>${sched.length > 1 ? `<button class="linkbtn" data-delsched="${esc(s.from)}" aria-label="Borrar">Borrar</button>` : ""}</span></div>`).join("")}</div></div>
+      </div>
+
+      <div class="panel">
+        <div class="label">Movimientos de stock</div>
+        <div class="hist">${moves.map(x => `<div><span>${esc(x.text)}</span><span style="display:flex;gap:6px;align-items:center"><span class="when">${esc(fmtShort(x.date))}</span>${x.kind === "add" || (m.counts || []).length > 1 ? `<button class="linkbtn" data-delmove="${x.kind}:${x.i}">Borrar</button>` : ""}</span></div>`).join("")}</div>
+      </div>
+
+      ${m.notes ? `<div class="panel"><div class="label">Notas</div><div style="white-space:pre-wrap">${esc(m.notes)}</div></div>` : ""}
+
+      <div class="row">
+        <button class="btn" id="d-edit">Editar datos</button>
+        <button class="btn danger" id="d-del">Eliminar</button>
+      </div>
+      <div id="d-confirm"></div>`);
+    if (prevScroll) sh.scrollTop = prevScroll;
+
+    const qtyForm = (kind) => {
+      editing = true;
+      const f = sh.querySelector("#d-stockForm");
+      const isAdd = kind === "add";
+      f.innerHTML = `<form class="panel" style="padding:12px;background:var(--bg)" id="sf">
+        <div class="row">
+          <label class="field"><span>${isAdd ? "Cuántas unidades entraron" : "Cuánto hay contando"}</span><input id="s-qty" inputmode="decimal" required placeholder="${isAdd && m.perBox ? "Ej.: " + m.perBox : "Ej.: 20"}"></label>
+          <label class="field"><span>Fecha</span><input id="s-date" type="date" value="${T}" max="${T}"></label>
+        </div>
+        ${isAdd && m.perBox ? `<div class="seg">${[1, 2, 3].map(n => `<button type="button" data-boxes="${n}">${n} ${n === 1 ? "caja" : "cajas"} (${n * m.perBox})</button>`).join("")}</div>` : ""}
+        ${isAdd ? `<label class="field"><span>Nota (opcional)</span><input id="s-note" placeholder="Ej.: farmacia, PAMI, muestra"></label>` : `<p class="hint">Lo que queda después de las tomas de ese día. Reemplaza el cálculo desde esa fecha.</p>`}
+        <button class="btn primary" type="submit">Guardar</button></form>`;
+      f.querySelectorAll("[data-boxes]").forEach(b => b.onclick = () => { f.querySelector("#s-qty").value = b.dataset.boxes * m.perBox; });
+      f.querySelector("#s-qty").focus();
+      f.querySelector("#sf").onsubmit = async e => {
+        e.preventDefault();
+        const qty = parseNum(f.querySelector("#s-qty").value), date = f.querySelector("#s-date").value || T;
+        if (!(qty >= 0)) { toast("Escribí una cantidad válida."); return; }
+        const nm = structuredClone(m);
+        if (isAdd) nm.adds = [...(nm.adds || []), { date, qty, note: f.querySelector("#s-note").value.trim() }];
+        else nm.counts = [...(nm.counts || []).filter(x => x.date !== date), { date, qty }];
+        await saveMed(nm); toast(isAdd ? "Compra registrada" : "Recuento guardado");
+      };
+    };
+    sh.querySelector("#d-add").onclick = () => qtyForm("add");
+    sh.querySelector("#d-count").onclick = () => qtyForm("count");
+    sh.querySelector("#d-dose").onclick = () => {
+      editing = true;
+      const f = sh.querySelector("#d-doseForm");
+      f.innerHTML = `<form class="panel" style="padding:12px;background:var(--bg)" id="df">
+        <div class="row">
+          <label class="field"><span>Desde</span><input id="n-from" type="date" value="${addDays(T, 1)}"></label>
+        </div>
+        <div class="field"><span>Nueva dosis en cada toma</span>${slotInputs(cur)}</div>
+        <p class="hint">Si el médico la cambió hoy y ya tomó la dosis vieja, dejá la fecha de mañana. Con todo vacío queda suspendido.</p>
+        <button class="btn primary" type="submit">Guardar dosis</button></form>`;
+      f.querySelector("[data-slot]").focus();
+      f.querySelector("#df").onsubmit = async e => {
+        e.preventDefault();
+        const sl = readSlots(f), from = f.querySelector("#n-from").value || T;
+        if (!sl) { toast("Escribí dosis válidas."); return; }
+        const nm = structuredClone(m);
+        nm.schedule = [...(nm.schedule || []).filter(s => s.from !== from), { from, ...sl }];
+        await saveMed(nm); toast("Dosis actualizada");
+      };
+    };
+    sh.querySelectorAll("[data-delsched]").forEach(b => b.onclick = async () => {
+      const nm = structuredClone(m); nm.schedule = nm.schedule.filter(s => s.from !== b.dataset.delsched);
+      await saveMed(nm);
+    });
+    sh.querySelectorAll("[data-delmove]").forEach(b => b.onclick = async () => {
+      const [k, i] = b.dataset.delmove.split(":"); const nm = structuredClone(m);
+      if (k === "add") nm.adds.splice(+i, 1); else nm.counts.splice(+i, 1);
+      await saveMed(nm);
+    });
+    sh.querySelector("#d-edit").onclick = () => openEditor(m.id);
+    sh.querySelector("#d-del").onclick = () => {
+      const box = sh.querySelector("#d-confirm");
+      box.innerHTML = `<div class="confirm"><strong>¿Eliminar ${esc(m.name)} y todo su historial?</strong>
+        <div class="row"><button class="btn danger" id="c-yes">Sí, eliminar</button><button class="btn" id="c-no">Cancelar</button></div></div>`;
+      box.scrollIntoView({ block: "nearest" });
+      box.querySelector("#c-no").onclick = () => box.innerHTML = "";
+      box.querySelector("#c-yes").onclick = async () => {
+        await write("meds/" + m.id, () => db.collection("meds").doc(m.id).delete());
+        toast("Eliminado"); closeSheet();
+      };
+    };
+  }
+
+  $("#exportBtn").onclick = () => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([LocalDB.exportJSON()], { type: "application/json" }));
+    a.download = `dosis-copia-${todayStr()}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  };
+  $("#importBtn").onclick = () => $("#importFile").click();
+  $("#importFile").onchange = async e => {
+    const f = e.target.files[0]; e.target.value = "";
+    if (!f) return;
+    if (!confirm("Esto reemplaza todos los datos de este teléfono por los de la copia. ¿Seguir?")) return;
+    try { const n = LocalDB.importJSON(await f.text()); toast(`Copia cargada: ${n} medicamento${n === 1 ? "" : "s"}`); }
+    catch { toast("Ese archivo no es una copia de Dosis."); }
+  };
+
+  $("#addBtn").onclick = () => db ? openEditor(null) : toast("Todavía no hay conexión para guardar.");
+
+  // ---------- conexión ----------
+  render();
+  setTab(tab);
+  (async () => {
+    db = LocalDB;
+    try { navigator.storage?.persist?.(); } catch {}
+    if (!db) {
+      $("#view-stock").innerHTML = `<div class="empty"><h2>No se pudo abrir el almacenamiento</h2><p class="muted">Abrí esta página desde claude.ai con tu cuenta iniciada para ver y guardar los medicamentos.</p></div>`;
+      return;
+    }
+    db.collection("meds").onSnapshot(snap => {
+      meds = snap.docs.map(d => ({ id: d.id, ...structuredClone(d.data()) }));
+      render();
+      if (openDetailId && !editing) openDetail(openDetailId, true);
+    }, e => { const n = $("#notice"); n.hidden = false; n.textContent = "Se perdió la conexión con los datos. Recargá la página."; });
+    db.doc("settings/main").onSnapshot(s => { settings = s.exists ? { ...s.data() } : {}; if (tab === "pedir") render(); }, () => {});
+    // refresca al cambiar el día con la página abierta
+    let day = todayStr();
+    setInterval(() => { if (todayStr() !== day) { day = todayStr(); render(); } }, 60000);
+  })();
+})();
+</script>
+<script>
+if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+</script>
+</body>
+</html>
