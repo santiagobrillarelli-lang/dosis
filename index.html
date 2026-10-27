@@ -137,6 +137,7 @@ textarea { min-height: 70px; resize: vertical; }
 .pill-row .q { font-family: var(--f-num); font-weight: 600; font-size: 1.15rem; text-align: right; }
 .pill-row .sub { grid-column: 1 / -1; font-size: .85rem; color: var(--muted); }
 .slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.days-pick button[data-day] { min-width: 38px; padding: 8px 0; }
 .order-item .why { grid-column: 1 / -1; font-size: .88rem; color: var(--muted); }
 
 /* hoja inferior */
@@ -284,10 +285,16 @@ const LocalDB = (() => {
   // Un conteo es lo que queda al final de ese día (ya descontadas las tomas del día).
   // El consumo empieza al día siguiente y sigue el esquema de dosis vigente en cada fecha.
   const sortBy = (arr, k) => [...(arr || [])].sort((a, b) => a[k] < b[k] ? -1 : a[k] > b[k] ? 1 : 0);
+  // Días de la semana: 0 = domingo … 6 = sábado (como getUTCDay). Sin `days` se toma todos los días.
+  const weekday = d => new Date(toUTC(d)).getUTCDay();
+  const everyDay = s => !s || !Array.isArray(s.days) || s.days.length === 0 || s.days.length >= 7;
+  const takesOn = (s, d) => everyDay(s) || s.days.includes(weekday(d));
+  const WEEK = [[1, "L", "lun"], [2, "M", "mar"], [3, "X", "mié"], [4, "J", "jue"], [5, "V", "vie"], [6, "S", "sáb"], [0, "D", "dom"]];
+  const daysText = s => everyDay(s) ? "" : WEEK.filter(([n]) => s.days.includes(n)).map(([, , t]) => t).join(", ");
   function perDayOn(m, d) {
-    let v = 0;
-    for (const s of sortBy(m.schedule, "from")) { if (s.from <= d) v = s.perDay; else break; }
-    return v;
+    let cur = null;
+    for (const s of sortBy(m.schedule, "from")) { if (s.from <= d) cur = s; else break; }
+    return cur && takesOn(cur, d) ? cur.perDay : 0;
   }
   function currentSchedule(m, d) {
     let cur = null;
@@ -359,15 +366,33 @@ const LocalDB = (() => {
   function scheduleLine(s) {
     if (s && s.stopped) return "Suspendido";
     if (!s || !s.perDay) return "Sin dosis diaria";
-    const t = slotText(s);
-    return `${fmtQty(s.perDay)} por día${t ? " · " + t : ""}`;
+    const t = slotText(s), w = daysText(s);
+    return `${fmtQty(s.perDay)} ${w ? "los " + w : "por día"}${t ? " · " + t : ""}`;
   }
-  const slotInputs = (cur) => `<div class="slots">${SLOTS.map(([k, l]) => `<label class="field"><span>${l}</span><input data-slot="${k}" inputmode="decimal" placeholder="0" value="${cur && hasSlots(cur) && cur[k] ? String(cur[k]).replace(".", ",") : ""}"></label>`).join("")}</div>`;
+  const slotInputs = (cur) => `<div class="slots">${SLOTS.map(([k, l]) => `<label class="field"><span>${l}</span><input data-slot="${k}" inputmode="decimal" placeholder="0" value="${cur && hasSlots(cur) && cur[k] ? String(cur[k]).replace(".", ",") : ""}"></label>`).join("")}</div>${dayPicker(cur)}`;
+  const dayPicker = cur => {
+    const all = everyDay(cur);
+    return `<div class="field"><span>Qué días</span><div class="seg days-pick">
+      <button type="button" data-alldays aria-pressed="${all}">Todos los días</button>
+      ${WEEK.map(([n, l, t]) => `<button type="button" data-day="${n}" aria-label="${t}" aria-pressed="${all || cur.days.includes(n)}">${l}</button>`).join("")}</div></div>`;
+  };
+  document.addEventListener("click", e => {
+    const b = e.target.closest(".days-pick button"); if (!b) return;
+    const box = b.parentElement, dayBtns = [...box.querySelectorAll("[data-day]")];
+    if (b.hasAttribute("data-alldays")) dayBtns.forEach(x => x.setAttribute("aria-pressed", "true"));
+    else {
+      b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true");
+      if (!dayBtns.some(x => x.getAttribute("aria-pressed") === "true")) b.setAttribute("aria-pressed", "true");
+    }
+    box.querySelector("[data-alldays]").setAttribute("aria-pressed", dayBtns.every(x => x.getAttribute("aria-pressed") === "true"));
+  });
   function readSlots(root) {
     const o = {}; let bad = false, tot = 0;
     root.querySelectorAll("[data-slot]").forEach(i => { const v = i.value.trim() === "" ? 0 : parseNum(i.value); if (!(v >= 0)) bad = true; o[i.dataset.slot] = v || 0; tot += v || 0; });
     if (bad) return null;
     o.perDay = Math.round(tot * 1000) / 1000;
+    const picked = [...root.querySelectorAll(".days-pick [data-day]")].filter(b => b.getAttribute("aria-pressed") === "true").map(b => +b.dataset.day);
+    if (picked.length && picked.length < 7) o.days = picked.sort();
     return o;
   }
   const level = days => days === null ? "plain" : days <= 7 ? "crit" : days <= 21 ? "warn" : "ok";
@@ -414,7 +439,7 @@ const LocalDB = (() => {
   addEventListener("scroll", syncStuck, { passive: true }); syncStuck();
 
   const doseText = (m, T) => { const s = currentSchedule(m, T);
-    if (!s) { const f = sortBy(m.schedule, "from").find(x => x.from > T); if (f) return `Empieza el ${fmtShort(f.from)}: ${scheduleLine(f)}`; } return m.prn && !(s && s.stopped) && !perDayOn(m, T) ? "Si necesita" : scheduleLine(s) + (m.prn ? " · y si necesita" : ""); };
+    if (!s) { const f = sortBy(m.schedule, "from").find(x => x.from > T); if (f) return `Empieza el ${fmtShort(f.from)}: ${scheduleLine(f)}`; } return m.prn && !(s && s.stopped) && !(s && s.perDay) ? "Si necesita" : scheduleLine(s) + (m.prn ? " · y si necesita" : ""); };
   const unitOf = m => m.unit || "comprimidos";
 
   function render() {
@@ -504,13 +529,19 @@ const LocalDB = (() => {
     if (del && d >= del) return {};
     const s = currentSchedule(m, d);
     if (!s || s.stopped || !s.perDay) return {};
-    const g = strengthOf(m);
-    return g ? { [g.unit]: g.val * s.perDay } : { [unitOf(m)]: s.perDay };
+    const g = strengthOf(m), wk = everyDay(s) ? "" : "|" + [...s.days].sort().join(",");
+    return g ? { [g.unit + wk]: g.val * s.perDay } : { [unitOf(m) + wk]: s.perDay };
   }
   const addAmt = (a, b) => { const o = { ...a }; for (const k in b) o[k] = (o[k] || 0) + b[k]; return o; };
   const isZero = a => !Object.values(a).some(v => v > 1e-9);
   const amtKey = a => Object.keys(a).sort().map(k => k + ":" + Math.round(a[k] * 1000)).join("|");
-  const amtText = a => Object.entries(a).filter(([, v]) => v > 1e-9).map(([u, v]) => `${String(Math.round(v * 100) / 100).replace(".", ",")} ${u}`).join(" + ") + " por día";
+  const amtText = a => {
+    const parts = Object.entries(a).filter(([, v]) => v > 1e-9).map(([k, v]) => {
+      const [u, wk] = k.split("|"), n = `${String(Math.round(v * 100) / 100).replace(".", ",")} ${u}`;
+      return wk ? `${n} los ${daysText({ days: wk.split(",").map(Number) })}` : n;
+    });
+    return parts.every(x => !/ los /.test(x)) ? parts.join(" + ") + " por día" : parts.map(x => / los /.test(x) ? x : x + " por día").join(" + ");
+  };
   function histGroups(T) {
     const groups = {};
     const all = [...meds.map(m => ({ m, del: null })), ...archived.map(m => ({ m, del: m.deletedOn || null }))];
@@ -634,7 +665,7 @@ const LocalDB = (() => {
         ${items.length ? items.map(x => {
           const q = qOf(x.s0, k), nq = x.next ? qOf(x.next, k) : q;
           return `<div class="pill-row"><div>${name(x.m)}</div><div class="q">${q ? fmtQty(q) : "–"}</div>
-          ${nq !== q ? `<div class="sub"><span class="chip warn">Desde el ${esc(fmtShort(x.next.from))}: ${nq ? fmtQty(nq) : "no va"}</span></div>` : ""}</div>`;
+          ${nq !== q || !everyDay(x.s0) ? `<div class="sub">${!everyDay(x.s0) ? `<span class="chip plain">Solo ${esc(daysText(x.s0))}</span> ` : ""}${nq !== q ? `<span class="chip warn">Desde el ${esc(fmtShort(x.next.from))}: ${nq ? fmtQty(nq) : "no va"}</span>` : ""}</div>` : ""}</div>`;
         }).join("") : `<p class="muted small" style="margin:0">Nada en esta toma.</p>`}</div>`;
     }).join("");
     const unassigned = rows.filter(x => x.s0 && x.s0.perDay > 0 && !hasSlots(x.s0));
