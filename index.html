@@ -62,6 +62,7 @@ header.top { display: flex; align-items: center; justify-content: space-between;
 .today { font-size: .95rem; color: var(--muted); }
 
 .tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 4px; }
+.tabs { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 8px); z-index: 4; box-shadow: 0 4px 14px rgba(0,0,0,.08), 0 -20px 0 12px var(--bg); }
 .tabs button { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: var(--ink); font: 700 .92rem var(--f-body); padding: 10px 8px; border-radius: 999px; cursor: pointer; }
 .tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
 
@@ -184,13 +185,6 @@ textarea { min-height: 70px; resize: vertical; }
   </section>
 
   <section id="view-pill" hidden style="display:flex;flex-direction:column;gap:14px">
-    <div class="panel">
-      <div class="row">
-        <label class="field"><span>Armar desde</span><input type="date" id="pillFrom"></label>
-        <label class="field"><span>Cantidad de días</span><input id="pillDays" inputmode="numeric" value="7"></label>
-      </div>
-      <div class="seg" id="pillQuick"><button type="button" data-n="7">1 semana</button><button type="button" data-n="14">2 semanas</button><button type="button" data-n="28">4 semanas</button></div>
-    </div>
     <div id="pillOut" style="display:flex;flex-direction:column;gap:14px"></div>
   </section>
 
@@ -615,45 +609,34 @@ const LocalDB = (() => {
   }
 
   // ---------- pastillero ----------
-  let pillFrom = null, pillDays = 7;
+  // Pastillero de un día: qué va en cada toma según la dosis de hoy, avisando cambios de la próxima semana.
   function renderPill(T) {
-    if (!pillFrom) pillFrom = addDays(T, 1);
-    const fi = $("#pillFrom"), di = $("#pillDays");
-    if (document.activeElement !== fi) fi.value = pillFrom;
-    if (document.activeElement !== di) di.value = pillDays;
-    $("#pillQuick").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.n === pillDays));
     const out = $("#pillOut");
-    if (!meds.length) { out.innerHTML = `<div class="panel"><p class="muted" style="margin:0">Cuando cargues medicamentos, acá vas a ver qué poner en cada casillero.</p></div>`; return; }
-    const last = addDays(pillFrom, pillDays - 1);
-    const range = []; for (let d = pillFrom; d <= last; d = addDays(d, 1)) range.push(d);
-    const active = meds.map(m => {
-      const scheds = range.map(d => currentSchedule(m, d));
-      const changes = range.filter((d, i) => i > 0 && scheds[i] !== scheds[i - 1]);
-      const total = range.reduce((a, d) => a + perDayOn(m, d), 0);
-      const before = stockAt(m, addDays(pillFrom, -1));
-      return { m, s0: scheds[0], changes, total, before };
-    }).filter(x => x.total > 0).sort((a, b) => a.m.name.localeCompare(b.m.name));
+    if (!meds.length) { out.innerHTML = `<div class="panel"><p class="muted" style="margin:0">Cuando cargues medicamentos, acá vas a ver qué poner en cada toma.</p></div>`; return; }
+    const soon = addDays(T, 7);
+    const rows = meds.map(m => {
+      const s0 = currentSchedule(m, T);
+      const next = sortBy(m.schedule, "from").find(s => s.from > T && s.from <= soon) || null;
+      return { m, s0: s0 && !s0.stopped ? s0 : null, next };
+    }).sort((a, b) => a.m.name.localeCompare(b.m.name));
     const name = m => `<strong>${esc(m.name)}</strong>${m.strength ? ` <span class="muted">${esc(m.strength)}</span>` : ""}`;
-    const unassigned = active.filter(x => x.s0 && x.s0.perDay > 0 && !hasSlots(x.s0));
+    const qOf = (s, k) => s && !s.stopped && hasSlots(s) ? (s[k] || 0) : 0;
     const cards = SLOTS.map(([k, l]) => {
-      const items = active.filter(x => x.s0 && hasSlots(x.s0) && x.s0[k] > 0);
-      const count = items.reduce((a, x) => a + x.s0[k], 0);
-      return `<div class="panel slot-card"><h3>${l}<span class="small muted">${items.length ? `${items.length} ${items.length === 1 ? "medicamento" : "medicamentos"} · ${fmtQty(count)} en total` : ""}</span></h3>
-        ${items.length ? items.map(x => `<div class="pill-row"><div>${name(x.m)}</div><div class="q">${fmtQty(x.s0[k])}</div>
-          ${x.changes.length ? `<div class="sub"><span class="chip warn">Cambia la dosis el ${esc(fmtShort(x.changes[0]))}</span></div>` : ""}</div>`).join("")
-          : `<p class="muted small" style="margin:0">Nada en esta toma.</p>`}</div>`;
+      const items = rows.filter(x => qOf(x.s0, k) > 0 || (x.next && qOf(x.next, k) !== qOf(x.s0, k)));
+      const now = items.filter(x => qOf(x.s0, k) > 0);
+      const count = now.reduce((a, x) => a + qOf(x.s0, k), 0);
+      return `<div class="panel slot-card"><h3>${l}<span class="small muted">${now.length ? `${now.length} ${now.length === 1 ? "medicamento" : "medicamentos"} · ${fmtQty(count)} en total` : ""}</span></h3>
+        ${items.length ? items.map(x => {
+          const q = qOf(x.s0, k), nq = x.next ? qOf(x.next, k) : q;
+          return `<div class="pill-row"><div>${name(x.m)}</div><div class="q">${q ? fmtQty(q) : "–"}</div>
+          ${nq !== q ? `<div class="sub"><span class="chip warn">Desde el ${esc(fmtShort(x.next.from))}: ${nq ? fmtQty(nq) : "no va"}</span></div>` : ""}</div>`;
+        }).join("") : `<p class="muted small" style="margin:0">Nada en esta toma.</p>`}</div>`;
     }).join("");
+    const unassigned = rows.filter(x => x.s0 && x.s0.perDay > 0 && !hasSlots(x.s0));
     const extra = unassigned.length ? `<div class="panel"><h3>Sin toma asignada</h3><p class="hint" style="margin:0">Cargá en qué toma va cada uno desde "Cambiar dosis".</p>
       ${unassigned.map(x => `<div class="pill-row"><div>${name(x.m)}</div><div class="q">${fmtQty(x.s0.perDay)}/día</div></div>`).join("")}</div>` : "";
-    const totals = `<div class="panel"><h3>Total para ${pillDays} ${pillDays === 1 ? "día" : "días"}</h3><p class="hint" style="margin:0">Del ${esc(fmtShort(pillFrom))} al ${esc(fmtShort(last))}, con los cambios de dosis ya cargados.</p>
-      ${active.map(x => { const short = x.before !== null && x.before < x.total - 1e-9;
-        return `<div class="pill-row"><div>${name(x.m)}</div><div class="q">${fmtQty(x.total)}</div>
-        ${short ? `<div class="sub"><span class="chip crit">Hay ${fmtQty(Math.max(0, x.before))}, faltan ${fmtQty(x.total - Math.max(0, x.before))}</span></div>` : ""}</div>`; }).join("")}</div>`;
-    out.innerHTML = cards + extra + totals;
+    out.innerHTML = cards + extra;
   }
-  $("#pillFrom").onchange = () => { if ($("#pillFrom").value) { pillFrom = $("#pillFrom").value; render(); } };
-  $("#pillDays").onchange = () => { const n = Math.round(parseNum($("#pillDays").value)); if (n >= 1 && n <= 90) { pillDays = n; render(); } };
-  $("#pillQuick").querySelectorAll("button").forEach(b => b.onclick = () => { pillDays = +b.dataset.n; render(); });
 
   let settingsTimer;
   function saveSettings() {
