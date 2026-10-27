@@ -74,7 +74,7 @@ header.top { display: flex; align-items: center; justify-content: space-between;
 .hist-day { display: flex; flex-direction: column; gap: 8px; }
 .hist-ev { display: flex; flex-direction: column; gap: 1px; }
 .hist-ev .k { font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
-.hist-ev .k.start { color: var(--ok); } .hist-ev .k.change { color: var(--warn); } .hist-ev .k.stop { color: var(--crit); } .hist-ev .k.resume { color: var(--accent); } .hist-ev .k.del { color: var(--muted); }
+.hist-ev .k.start { color: var(--ok); } .hist-ev .k.change { color: var(--warn); } .hist-ev .k.stop { color: var(--crit); } .hist-ev .k.resume { color: var(--accent); } .hist-ev .k.del, .hist-ev .k.extra { color: var(--muted); }
 .print-only { display: none; }
 @media print {
   :root { --bg: #fff; --surface: #fff; --shadow: none; }
@@ -306,19 +306,33 @@ const LocalDB = (() => {
     if (!c) return null;
     let q = c.qty;
     for (const a of m.adds || []) if (a.date > c.date && a.date <= T) q += a.qty;
+    // Una toma extra del mismo día del conteo se descuenta si se registró después de ese conteo.
+    const countAt = c.savedAt || (c === sortBy(m.counts, "date")[0] ? m.createdAt : "") || "";
+    for (const x of m.extras || []) if (x.date <= T && (x.date > c.date || (x.date === c.date && (x.at || "") > countAt))) q -= x.qty;
     for (let d = addDays(c.date, 1); d <= T; d = addDays(d, 1)) q -= perDayOn(m, d);
     return q;
   }
+  // Tomas extra ("si necesita"): para proyectar se usa el promedio diario de las últimas 4 semanas
+  // (o desde la primera toma extra, con un mínimo de 7 días, si es más reciente).
+  function extraAvg(m, T) {
+    const ex = (m.extras || []).filter(x => x.date <= T && x.date > addDays(T, -28));
+    if (!ex.length) return 0;
+    const first = ex.reduce((a, x) => x.date < a ? x.date : a, T);
+    const span = Math.min(28, Math.max(7, diffDays(first, T) + 1));
+    return ex.reduce((a, x) => a + x.qty, 0) / span;
+  }
+  const expectedOn = (m, d, avg) => { const s = currentSchedule(m, d); return s && s.stopped ? 0 : perDayOn(m, d) + avg; };
   // Último día que el stock cubre completo, mirando hacia adelante hasta 3 años.
   function coverage(m, T) {
     let s = stockAt(m, T);
     if (s === null) return { stock: null, until: null, days: null };
     const futureAdds = (m.adds || []).filter(a => a.date > T);
+    const avg = extraAvg(m, T);
     let d = T, n = 0;
     while (n < 1100) {
       const next = addDays(d, 1);
       for (const a of futureAdds) if (a.date === next) s += a.qty;
-      const need = perDayOn(m, next);
+      const need = expectedOn(m, next, avg);
       if (s - need < -1e-9) break;
       s -= need; d = next; n++;
     }
@@ -330,8 +344,8 @@ const LocalDB = (() => {
     let s = stockAt(m, from);
     if (s === null) return 0;
     for (const a of m.adds || []) if (a.date > from && a.date <= until) s += a.qty;
-    let use = 0;
-    for (let d = addDays(from, 1); d <= until; d = addDays(d, 1)) use += perDayOn(m, d);
+    let use = 0; const avg = extraAvg(m, from);
+    for (let d = addDays(from, 1); d <= until; d = addDays(d, 1)) use += expectedOn(m, d, avg);
     return Math.max(0, use - s);
   }
   const SLOTS = [["ayunas", "En ayunas"], ["manana", "Mañana"], ["noche", "Noche"]];
@@ -397,7 +411,7 @@ const LocalDB = (() => {
   }
   document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => setTab(b.dataset.tab));
 
-  const doseText = (m, T) => scheduleLine(currentSchedule(m, T));
+  const doseText = (m, T) => { const s = currentSchedule(m, T); return m.prn && !(s && s.stopped) && !perDayOn(m, T) ? "Si necesita" : scheduleLine(s) + (m.prn ? " · y si necesita" : ""); };
   const unitOf = m => m.unit || "comprimidos";
 
   function render() {
@@ -441,7 +455,7 @@ const LocalDB = (() => {
     v.innerHTML = filterBar + (shown.length || stoppedList || !stockFilter ? "" : emptyMsg) + shown.map(({ m, c }) => {
       const lv = level(c.days);
       const pct = c.days === Infinity ? 100 : Math.max(3, Math.min(100, (c.days / 60) * 100));
-      const until = c.days === Infinity ? "No se consume" : c.days === null ? "Falta cargar stock"
+      const until = c.days === Infinity ? (m.prn ? "Sin tomas recientes" : "No se consume") : c.days === null ? "Falta cargar stock"
         : c.stock < 0 ? "Se terminó: registrá una compra o recontá"
         : c.days === 0 ? "No alcanza para mañana" : `Alcanza ${c.days} ${c.days === 1 ? "día" : "días"} · hasta el ${fmtShort(c.until)}`;
       return `<button class="med" data-id="${esc(m.id)}">
@@ -500,19 +514,26 @@ const LocalDB = (() => {
         if (!isZero(cur)) { started = true; lastOn = cur; endedOn = null; } else endedOn = d;
         prev = cur;
       }
-      return { ...g, today: total(T), lastOn, endedOn, events };
+      const extraByDate = {};
+      for (const { m } of g.items) for (const x of m.extras || []) if (x.date <= T) {
+        const g2 = String(m.strength || "").match(/(\d+(?:[.,]\d+)?)\s*(mg|mcg|µg|ug|g|ml|ui)\b/i);
+        extraByDate[x.date] = addAmt(extraByDate[x.date] || {}, g2 ? { [g2[2].toLowerCase()]: parseNum(g2[1]) * x.qty } : { [unitOf(m)]: x.qty });
+      }
+      for (const [d, a] of Object.entries(extraByDate)) events.push({ date: d, kind: "extra", label: "Toma extra", text: amtText(a).replace(" por día", "") });
+      const prn = g.items.some(({ m, del }) => !del && m.prn && !suspendedOn(m, T));
+      return { ...g, today: total(T), lastOn, endedOn, events, prn };
     });
   }
   function renderHist(T) {
     const out = $("#histOut");
     const gs = histGroups(T).sort((a, b) => a.name.localeCompare(b.name));
-    const current = gs.filter(g => !isZero(g.today));
-    const before = gs.filter(g => isZero(g.today) && g.lastOn && g.endedOn);
+    const current = gs.filter(g => !isZero(g.today) || g.prn);
+    const before = gs.filter(g => isZero(g.today) && !g.prn && g.lastOn && g.endedOn);
     const ev = gs.flatMap(g => g.events.map(e => ({ ...e, name: g.name }))).sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
     const byDate = {}; ev.forEach(e => (byDate[e.date] ||= []).push(e));
     out.innerHTML = `<div class="print-only"><h2>Historial de medicación</h2><p class="muted">Generado el ${esc(fmtDate(T, { day: "numeric", month: "long", year: "numeric" }))}</p></div>
       <div class="panel"><h3>Toma actualmente</h3>
-        ${current.length ? current.map(g => `<div class="pill-row"><div><strong>${esc(g.name)}</strong>${g.psych ? ` <span class="chip psy">Psiquiátrico</span>` : ""}<div class="small muted">${esc(amtText(g.today))}</div></div></div>`).join("") : `<p class="muted small" style="margin:0">Nada cargado.</p>`}</div>
+        ${current.length ? current.map(g => `<div class="pill-row"><div><strong>${esc(g.name)}</strong>${g.psych ? ` <span class="chip psy">Psiquiátrico</span>` : ""}<div class="small muted">${esc(isZero(g.today) ? "Si necesita" : amtText(g.today) + (g.prn ? " y si necesita" : ""))}</div></div></div>`).join("") : `<p class="muted small" style="margin:0">Nada cargado.</p>`}</div>
       ${before.length ? `<div class="panel"><h3>Tomaba antes</h3>${before.map(g => `<div class="pill-row"><div><strong>${esc(g.name)}</strong><div class="small muted">${esc(amtText(g.lastOn))} · hasta el ${esc(fmtDate(g.endedOn, { day: "numeric", month: "short", year: "numeric" }))}</div></div></div>`).join("")}</div>` : ""}
       <div class="panel"><h3>Cambios</h3>
         ${ev.length ? Object.entries(byDate).map(([d, items]) => `<div class="hist-day"><div class="label">${esc(fmtDate(d, { weekday: "short", day: "numeric", month: "short", year: "numeric" }))}</div>
@@ -539,7 +560,7 @@ const LocalDB = (() => {
     const list = rows.filter(r => (doctorSel === "Todos" || groupOf(r.m) === doctorSel) && r.c.days !== Infinity && r.c.until !== null && r.c.until < cover)
       .map(r => {
         const need = needUntil(r.m, T, cover);
-        let use = 0; for (let d = addDays(T, 1); d <= cover; d = addDays(d, 1)) use += perDayOn(r.m, d);
+        let use = 0; const avg = extraAvg(r.m, T); for (let d = addDays(T, 1); d <= cover; d = addDays(d, 1)) use += expectedOn(r.m, d, avg);
         const have = Math.max(0, use - need);
         const boxes = r.m.perBox > 0 ? Math.ceil(need / r.m.perBox) : null;
         return { ...r, need, use, have, days: diffDays(T, cover), boxes, beforeVisit: r.c.until < visit };
@@ -659,30 +680,37 @@ const LocalDB = (() => {
         <label class="field"><span>Médico que lo receta</span><input id="f-doctor" list="doctors" placeholder="Ej.: Psiquiatra, Clínico, Dra. Pérez" value="${esc(m?.doctor)}"></label>
         <datalist id="doctors">${doctorOptions()}</datalist>
         <label class="check"><input type="checkbox" id="f-psych" ${m?.psych ? "checked" : ""}> Psiquiátrico</label>
+        <label class="check"><input type="checkbox" id="f-prn" ${m?.prn ? "checked" : ""}> Lo toma solo si lo necesita</label>
         ${m ? "" : `
         <div class="row">
           <label class="field"><span>Cuánto hay hoy</span><input id="f-qty" inputmode="decimal" required placeholder="Ej.: 42"></label>
         </div>
-        <div class="field"><span>Cuánto toma en cada toma</span>${slotInputs(null)}</div>
+        <div class="field" id="f-slots"><span>Cuánto toma en cada toma</span>${slotInputs(null)}</div>
         <p class="hint">Contá lo que queda después de las tomas de hoy. Se acepta ½ o 0,5. Dejá vacía la toma que no corresponde.</p>`}
         <label class="field"><span>Notas</span><textarea id="f-notes" placeholder="Ej.: nombre comercial, farmacia, obra social">${esc(m?.notes)}</textarea></label>
         <button class="btn primary" type="submit">${m ? "Guardar cambios" : "Agregar"}</button>
       </form>`);
     sh.querySelector("#f-name").focus();
+    const slotsBox = sh.querySelector("#f-slots");
+    const syncPrn = () => { if (slotsBox) slotsBox.hidden = sh.querySelector("#f-prn").checked; };
+    sh.querySelector("#f-prn").onchange = syncPrn; syncPrn();
     sh.querySelector("#medForm").onsubmit = async e => {
       e.preventDefault();
       const base = {
         name: $("#f-name").value.trim(), strength: $("#f-strength").value.trim(), unit: $("#f-unit").value.trim() || "comprimidos",
-        perBox: parseNum($("#f-box").value) || null, doctor: $("#f-doctor").value.trim(), psych: $("#f-psych").checked, notes: $("#f-notes").value.trim(),
+        perBox: parseNum($("#f-box").value) || null, doctor: $("#f-doctor").value.trim(), psych: $("#f-psych").checked, prn: $("#f-prn").checked, notes: $("#f-notes").value.trim(),
       };
       if (!base.name) return;
       if (m) {
-        openDetailId = m.id; await saveMed({ ...m, ...base }); toast("Guardado");
+        const nm = { ...m, ...base };
+        // Al pasarlo a "si necesita", deja de descontarse solo desde mañana.
+        if (base.prn && !m.prn && perDayOn(m, addDays(T, 1)) > 0) nm.schedule = [...(m.schedule || []).filter(s => s.from !== addDays(T, 1)), { from: addDays(T, 1), perDay: 0, ayunas: 0, manana: 0, noche: 0 }];
+        openDetailId = m.id; await saveMed(nm); toast("Guardado");
       } else {
-        const qty = parseNum($("#f-qty").value), sl = readSlots(sh);
+        const qty = parseNum($("#f-qty").value), sl = base.prn ? { ayunas: 0, manana: 0, noche: 0, perDay: 0 } : readSlots(sh);
         if (!(qty >= 0) || !sl) { toast("Revisá la cantidad y las dosis."); return; }
         const id = db.collection("meds").doc().id;
-        const nm = { id, ...base, createdAt: new Date().toISOString(), counts: [{ date: T, qty }], adds: [],
+        const nm = { id, ...base, createdAt: new Date().toISOString(), counts: [{ date: T, qty }], adds: [], extras: [],
           schedule: [{ from: T, ...sl }] };
         await saveMed(nm); toast("Agregado"); closeSheet();
       }
@@ -700,6 +728,7 @@ const LocalDB = (() => {
     const moves = [
       ...(m.counts || []).map((x, i) => ({ kind: "count", i, date: x.date, text: `Conteo: ${fmtQty(x.qty)} ${unitOf(m)}` })),
       ...(m.adds || []).map((x, i) => ({ kind: "add", i, date: x.date, text: `+ ${fmtQty(x.qty)} ${unitOf(m)}${x.note ? " · " + x.note : ""}` })),
+      ...(m.extras || []).map((x, i) => ({ kind: "extra", i, date: x.date, text: `${m.prn ? "Toma" : "Toma extra"}: ${fmtQty(x.qty)} ${unitOf(m)}` })),
     ].sort((a, b) => a.date < b.date ? 1 : -1);
     const sh = openSheet(`
       <div class="sheet-head"><div><h2>${esc(m.name)} ${m.strength ? `<span class="muted">${esc(m.strength)}</span>` : ""}</h2>
@@ -711,10 +740,12 @@ const LocalDB = (() => {
           <div><div class="label">Quedan hoy</div><div class="num" style="font-size:2.2rem;font-weight:600;line-height:1.1">${c.stock === null ? "–" : fmtQty(Math.max(0, c.stock))} <span class="small muted" style="font-family:var(--f-body)">${esc(unitOf(m))}</span></div></div>
           <span class="chip ${cur && cur.stopped ? "plain" : lv}">${cur && cur.stopped ? "Suspendido" : c.days === Infinity ? "No se consume" : c.stock < 0 ? "Se terminó" : `Alcanza hasta el ${esc(fmtShort(c.until))}`}</span>
         </div>
+        ${extraAvg(m, T) > 0 ? `<p class="hint" style="margin:0">${m.prn ? "Tomas" : "Tomas extra"}: ${String(Math.round(extraAvg(m, T) * 7 * 10) / 10).replace(".", ",")} por semana en promedio. Ya está sumado en "Alcanza hasta".</p>` : ""}
         ${c.stock < 0 ? `<p class="hint">Según la dosis, faltan ${fmtQty(-c.stock)} ${esc(unitOf(m))}. Registrá la compra o hacé un recuento.</p>` : ""}
         <div class="row">
           <button class="btn primary" id="d-add">Registrar compra</button>
           <button class="btn" id="d-count">Recontar</button>
+          <button class="btn" id="d-extra">${m.prn && !perDayOn(m, T) ? "Registrar toma" : "Tomó una extra"}</button>
         </div>
         <div id="d-stockForm"></div>
       </div>
@@ -732,7 +763,7 @@ const LocalDB = (() => {
 
       <div class="panel">
         <div class="label">Movimientos de stock</div>
-        <div class="hist">${moves.map(x => `<div><span>${esc(x.text)}</span><span style="display:flex;gap:6px;align-items:center"><span class="when">${esc(fmtShort(x.date))}</span>${x.kind === "add" || (m.counts || []).length > 1 ? `<button class="linkbtn" data-delmove="${x.kind}:${x.i}">Borrar</button>` : ""}</span></div>`).join("")}</div>
+        <div class="hist">${moves.map(x => `<div><span>${esc(x.text)}</span><span style="display:flex;gap:6px;align-items:center"><span class="when">${esc(fmtShort(x.date))}</span>${x.kind !== "count" || (m.counts || []).length > 1 ? `<button class="linkbtn" data-delmove="${x.kind}:${x.i}">Borrar</button>` : ""}</span></div>`).join("")}</div>
       </div>
 
       ${m.notes ? `<div class="panel"><div class="label">Notas</div><div style="white-space:pre-wrap">${esc(m.notes)}</div></div>` : ""}
@@ -764,12 +795,31 @@ const LocalDB = (() => {
         if (!(qty >= 0)) { toast("Escribí una cantidad válida."); return; }
         const nm = structuredClone(m);
         if (isAdd) nm.adds = [...(nm.adds || []), { date, qty, note: f.querySelector("#s-note").value.trim() }];
-        else nm.counts = [...(nm.counts || []).filter(x => x.date !== date), { date, qty }];
+        else nm.counts = [...(nm.counts || []).filter(x => x.date !== date), { date, qty, savedAt: new Date().toISOString() }];
         await saveMed(nm); toast(isAdd ? "Compra registrada" : "Recuento guardado");
       };
     };
     sh.querySelector("#d-add").onclick = () => qtyForm("add");
     sh.querySelector("#d-count").onclick = () => qtyForm("count");
+    sh.querySelector("#d-extra").onclick = () => {
+      editing = true;
+      const f = sh.querySelector("#d-stockForm");
+      f.innerHTML = `<form class="panel" style="padding:12px;background:var(--bg)" id="xf">
+        <div class="row">
+          <label class="field"><span>Cuánto tomó</span><input id="x-qty" inputmode="decimal" required value="1"></label>
+          <label class="field"><span>Fecha</span><input id="x-date" type="date" value="${T}" max="${T}"></label>
+        </div>
+        <p class="hint">Se descuenta del stock. Para calcular cuánto te dura y qué pedir, se suma el promedio de tomas extra de las últimas 4 semanas.</p>
+        <button class="btn primary" type="submit">Guardar toma</button></form>`;
+      f.querySelector("#xf").onsubmit = async e => {
+        e.preventDefault();
+        const qty = parseNum(f.querySelector("#x-qty").value), date = f.querySelector("#x-date").value || T;
+        if (!(qty > 0)) { toast("Escribí una cantidad válida."); return; }
+        const nm = structuredClone(m);
+        nm.extras = [...(nm.extras || []), { date, qty, at: new Date().toISOString() }];
+        await saveMed(nm); toast("Toma registrada");
+      };
+    };
     const doseForm = (resume) => {
       editing = true;
       const f = sh.querySelector("#d-doseForm");
@@ -813,7 +863,7 @@ const LocalDB = (() => {
     });
     sh.querySelectorAll("[data-delmove]").forEach(b => b.onclick = async () => {
       const [k, i] = b.dataset.delmove.split(":"); const nm = structuredClone(m);
-      if (k === "add") nm.adds.splice(+i, 1); else nm.counts.splice(+i, 1);
+      if (k === "add") nm.adds.splice(+i, 1); else if (k === "extra") nm.extras.splice(+i, 1); else nm.counts.splice(+i, 1);
       await saveMed(nm);
     });
     sh.querySelector("#d-edit").onclick = () => openEditor(m.id);
