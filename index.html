@@ -62,7 +62,8 @@ header.top { display: flex; align-items: center; justify-content: space-between;
 .today { font-size: .95rem; color: var(--muted); }
 
 .tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 4px; }
-.tabs { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 8px); z-index: 4; box-shadow: 0 4px 14px rgba(0,0,0,.08), 0 -20px 0 12px var(--bg); }
+.tabs { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 8px); z-index: 4; }
+.tabs.stuck { box-shadow: 0 4px 14px rgba(0,0,0,.08), 0 -20px 0 12px var(--bg); }
 .tabs button { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: var(--ink); font: 700 .92rem var(--f-body); padding: 10px 8px; border-radius: 999px; cursor: pointer; }
 .tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
 
@@ -407,6 +408,10 @@ const LocalDB = (() => {
     render();
   }
   document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => setTab(b.dataset.tab));
+  // Sombra y fondo de las pestañas solo cuando quedan fijas arriba al deslizar.
+  const tabsEl = $(".tabs"), headEl = $("header.top");
+  const syncStuck = () => tabsEl.classList.toggle("stuck", headEl.getBoundingClientRect().bottom < 0);
+  addEventListener("scroll", syncStuck, { passive: true }); syncStuck();
 
   const doseText = (m, T) => { const s = currentSchedule(m, T);
     if (!s) { const f = sortBy(m.schedule, "from").find(x => x.from > T); if (f) return `Empieza el ${fmtShort(f.from)}: ${scheduleLine(f)}`; } return m.prn && !(s && s.stopped) && !perDayOn(m, T) ? "Si necesita" : scheduleLine(s) + (m.prn ? " · y si necesita" : ""); };
