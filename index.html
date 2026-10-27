@@ -411,7 +411,8 @@ const LocalDB = (() => {
   }
   document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => setTab(b.dataset.tab));
 
-  const doseText = (m, T) => { const s = currentSchedule(m, T); return m.prn && !(s && s.stopped) && !perDayOn(m, T) ? "Si necesita" : scheduleLine(s) + (m.prn ? " · y si necesita" : ""); };
+  const doseText = (m, T) => { const s = currentSchedule(m, T);
+    if (!s) { const f = sortBy(m.schedule, "from").find(x => x.from > T); if (f) return `Empieza el ${fmtShort(f.from)}: ${scheduleLine(f)}`; } return m.prn && !(s && s.stopped) && !perDayOn(m, T) ? "Si necesita" : scheduleLine(s) + (m.prn ? " · y si necesita" : ""); };
   const unitOf = m => m.unit || "comprimidos";
 
   function render() {
@@ -481,12 +482,17 @@ const LocalDB = (() => {
   // Agrupa por nombre (sin importar mayúsculas ni tildes) y suma todas las presentaciones:
   // Divalproato 250 mg a la mañana + Divalproato 500 mg a la noche = 750 mg por día.
   const normName = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+  // Concentración de una presentación: "25 mg", "1,5", "0.5mg". Sin unidad se toma como mg.
+  function strengthOf(m) {
+    const g = String(m.strength || "").trim().match(/^(\d+(?:[.,]\d+)?)\s*(mg|mcg|µg|ug|g|ml|ui)?\b/i);
+    return g ? { val: parseNum(g[1]), unit: (g[2] || "mg").toLowerCase() } : null;
+  }
   function amountOn(m, d, del) {
     if (del && d >= del) return {};
     const s = currentSchedule(m, d);
     if (!s || s.stopped || !s.perDay) return {};
-    const g = String(m.strength || "").match(/(\d+(?:[.,]\d+)?)\s*(mg|mcg|µg|ug|g|ml|ui)\b/i);
-    return g ? { [g[2].toLowerCase()]: parseNum(g[1]) * s.perDay } : { [unitOf(m)]: s.perDay };
+    const g = strengthOf(m);
+    return g ? { [g.unit]: g.val * s.perDay } : { [unitOf(m)]: s.perDay };
   }
   const addAmt = (a, b) => { const o = { ...a }; for (const k in b) o[k] = (o[k] || 0) + b[k]; return o; };
   const isZero = a => !Object.values(a).some(v => v > 1e-9);
@@ -516,8 +522,8 @@ const LocalDB = (() => {
       }
       const extraByDate = {};
       for (const { m } of g.items) for (const x of m.extras || []) if (x.date <= T) {
-        const g2 = String(m.strength || "").match(/(\d+(?:[.,]\d+)?)\s*(mg|mcg|µg|ug|g|ml|ui)\b/i);
-        extraByDate[x.date] = addAmt(extraByDate[x.date] || {}, g2 ? { [g2[2].toLowerCase()]: parseNum(g2[1]) * x.qty } : { [unitOf(m)]: x.qty });
+        const g2 = strengthOf(m);
+        extraByDate[x.date] = addAmt(extraByDate[x.date] || {}, g2 ? { [g2.unit]: g2.val * x.qty } : { [unitOf(m)]: x.qty });
       }
       for (const [d, a] of Object.entries(extraByDate)) events.push({ date: d, kind: "extra", label: "Toma extra", text: amtText(a).replace(" por día", "") });
       const prn = g.items.some(({ m, del }) => !del && m.prn && !suspendedOn(m, T));
@@ -681,6 +687,7 @@ const LocalDB = (() => {
         <datalist id="doctors">${doctorOptions()}</datalist>
         <label class="check"><input type="checkbox" id="f-psych" ${m?.psych ? "checked" : ""}> Psiquiátrico</label>
         <label class="check"><input type="checkbox" id="f-prn" ${m?.prn ? "checked" : ""}> Lo toma solo si lo necesita</label>
+        <label class="field"><span>Empieza a tomarlo el</span><input id="f-start" type="date" value="${m ? (sortBy(m.schedule, "from")[0]?.from || T) : T}"></label>
         ${m ? "" : `
         <div class="row">
           <label class="field"><span>Cuánto hay hoy</span><input id="f-qty" inputmode="decimal" required placeholder="Ej.: 42"></label>
@@ -703,15 +710,20 @@ const LocalDB = (() => {
       if (!base.name) return;
       if (m) {
         const nm = { ...m, ...base };
+        const start = $("#f-start").value, sch = sortBy(m.schedule, "from");
+        if (start && sch.length && start !== sch[0].from) {
+          if (sch[1] && start >= sch[1].from) { toast(`La fecha de inicio tiene que ser antes del ${fmtShort(sch[1].from)}.`); return; }
+          nm.schedule = [{ ...sch[0], from: start }, ...sch.slice(1)];
+        }
         // Al pasarlo a "si necesita", deja de descontarse solo desde mañana.
-        if (base.prn && !m.prn && perDayOn(m, addDays(T, 1)) > 0) nm.schedule = [...(m.schedule || []).filter(s => s.from !== addDays(T, 1)), { from: addDays(T, 1), perDay: 0, ayunas: 0, manana: 0, noche: 0 }];
+        if (base.prn && !m.prn && perDayOn(m, addDays(T, 1)) > 0) nm.schedule = [...(nm.schedule || []).filter(s => s.from !== addDays(T, 1)), { from: addDays(T, 1), perDay: 0, ayunas: 0, manana: 0, noche: 0 }];
         openDetailId = m.id; await saveMed(nm); toast("Guardado");
       } else {
         const qty = parseNum($("#f-qty").value), sl = base.prn ? { ayunas: 0, manana: 0, noche: 0, perDay: 0 } : readSlots(sh);
         if (!(qty >= 0) || !sl) { toast("Revisá la cantidad y las dosis."); return; }
         const id = db.collection("meds").doc().id;
         const nm = { id, ...base, createdAt: new Date().toISOString(), counts: [{ date: T, qty }], adds: [], extras: [],
-          schedule: [{ from: T, ...sl }] };
+          schedule: [{ from: $("#f-start").value || T, ...sl }] };
         await saveMed(nm); toast("Agregado"); closeSheet();
       }
     };
