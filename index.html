@@ -91,6 +91,9 @@ header.top { display: flex; align-items: center; justify-content: space-between;
 
 .list { display: flex; flex-direction: column; gap: 10px; }
 .med.stopped { opacity: .7; }
+.med .take { margin-left: auto; }
+#stockFilter { flex-wrap: nowrap; overflow-x: auto; }
+#stockFilter button { padding: 8px 11px; white-space: nowrap; flex: none; }
 .med { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 14px 16px; box-shadow: var(--shadow); display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; cursor: pointer; text-align: left; color: inherit; font: inherit; width: 100%; }
 .med:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .med .name { min-width: 0; }
@@ -376,7 +379,7 @@ const LocalDB = (() => {
 
   // ---------- estado ----------
   let db = null, meds = [], archived = [], settings = {}, tab = "stock", doctorSel = "Todos", stockFilter = 0;
-  try { const f = +localStorage.getItem("dosis.stockFilter"); if (f === 7 || f === 30) stockFilter = f; } catch {}
+  try { const f = +localStorage.getItem("dosis.stockFilter"); if (f === 7 || f === 30 || f === -1) stockFilter = f; } catch {}
   try { const t = localStorage.getItem("dosis.tab"); if (t === "pedir" || t === "pill" || t === "hist") tab = t; } catch {}
   const writeChains = {};
   function write(path, fn) {
@@ -442,12 +445,12 @@ const LocalDB = (() => {
       $("#emptyAdd").onclick = () => openEditor(null);
       return;
     }
-    const opts = [[0, "Todos"], [7, "1 semana"], [30, "1 mes"]];
+    const opts = [[0, "Todos"], [7, "1 semana"], [30, "1 mes"], [-1, "Si necesita"]];
     const activeRows = rows.filter(({ m }) => !suspendedOn(m, T));
     const stopped = rows.filter(({ m }) => suspendedOn(m, T)).sort((a, b) => a.m.name.localeCompare(b.m.name));
-    const shown = stockFilter ? activeRows.filter(({ c }) => c.days !== null && c.days <= stockFilter) : activeRows;
-    const filterBar = `<div class="seg" id="stockFilter" role="group" aria-label="Mostrar lo que se termina en">${opts.map(([n, l]) => `<button type="button" aria-pressed="${n === stockFilter}" data-f="${n}">${l}</button>`).join("")}</div>`;
-    const emptyMsg = `<div class="empty"><h2>Nada se termina en ${stockFilter === 7 ? "la próxima semana" : "el próximo mes"}</h2><p class="muted">Todos los medicamentos alcanzan más allá de esa fecha.</p></div>`;
+    const shown = stockFilter === -1 ? activeRows.filter(({ m }) => m.prn) : stockFilter ? activeRows.filter(({ c }) => c.days !== null && c.days <= stockFilter) : activeRows;
+    const filterBar = `<div class="seg" id="stockFilter" role="group" aria-label="Filtrar medicamentos">${opts.map(([n, l]) => `<button type="button" aria-pressed="${n === stockFilter}" data-f="${n}">${l}</button>`).join("")}</div>`;
+    const emptyMsg = stockFilter === -1 ? `<div class="empty"><h2>No hay medicamentos "si necesita"</h2><p class="muted">Marcalos con "Lo toma solo si lo necesita" al cargarlos o desde Editar datos.</p></div>` : `<div class="empty"><h2>Nada se termina en ${stockFilter === 7 ? "la próxima semana" : "el próximo mes"}</h2><p class="muted">Todos los medicamentos alcanzan más allá de esa fecha.</p></div>`;
     const stoppedList = !stockFilter && stopped.length ? `<div class="label" style="margin-top:8px">Suspendidos</div>` + stopped.map(({ m, c }) => `<button class="med stopped" data-id="${esc(m.id)}">
         <div class="name"><strong>${esc(m.name)}</strong>${m.strength ? ` <span class="muted">${esc(m.strength)}</span>` : ""}
           <div class="small muted">Suspendido desde el ${esc(fmtShort(suspendedOn(m, T).from))}</div></div>
@@ -459,7 +462,7 @@ const LocalDB = (() => {
       const until = c.days === Infinity ? (m.prn ? "Sin tomas recientes" : "No se consume") : c.days === null ? "Falta cargar stock"
         : c.stock < 0 ? "Se terminó: registrá una compra o recontá"
         : c.days === 0 ? "No alcanza para mañana" : `Alcanza ${c.days} ${c.days === 1 ? "día" : "días"} · hasta el ${fmtShort(c.until)}`;
-      return `<button class="med" data-id="${esc(m.id)}">
+      return `<div class="med" role="button" tabindex="0" data-id="${esc(m.id)}">
         <div class="name"><strong>${esc(m.name)}</strong>${m.strength ? ` <span class="muted">${esc(m.strength)}</span>` : ""}
           <div class="small muted">${esc(doseText(m, T))}</div></div>
         <div class="left"><div class="big">${c.stock === null ? "–" : fmtQty(Math.max(0, c.stock))}</div><div class="small muted">${esc(unitOf(m))}</div></div>
@@ -467,10 +470,21 @@ const LocalDB = (() => {
         <div class="meta"><span class="chip ${lv}">${esc(until)}</span>
           ${nextStop(m, T) ? `<span class="chip plain">Se suspende el ${esc(fmtShort(nextStop(m, T).from))}</span>` : ""}
           ${m.psych ? `<span class="chip psy">Psiquiátrico</span>` : `<span class="chip gen">No psiquiátrico</span>`}
-          ${m.doctor ? `<span>${esc(m.doctor)}</span>` : ""}</div>
-      </button>`;
+          ${m.doctor ? `<span>${esc(m.doctor)}</span>` : ""}
+          ${m.prn ? `<button type="button" class="btn small take" data-take="${esc(m.id)}">+ Registrar toma</button>` : ""}</div>
+      </div>`;
     }).join("") + stoppedList;
-    v.querySelectorAll(".med").forEach(b => b.onclick = () => openDetail(b.dataset.id));
+    v.querySelectorAll(".med").forEach(b => {
+      b.onclick = () => openDetail(b.dataset.id);
+      b.onkeydown = e => { if ((e.key === "Enter" || e.key === " ") && e.target === b) { e.preventDefault(); openDetail(b.dataset.id); } };
+    });
+    v.querySelectorAll("[data-take]").forEach(b => b.onclick = async e => {
+      e.stopPropagation();
+      const m = meds.find(x => x.id === b.dataset.take); if (!m) return;
+      const nm = structuredClone(m);
+      nm.extras = [...(nm.extras || []), { date: T, qty: 1, at: new Date().toISOString() }];
+      await saveMed(nm); toast("Toma registrada");
+    });
     v.querySelectorAll("#stockFilter button").forEach(b => b.onclick = () => {
       stockFilter = +b.dataset.f;
       try { localStorage.setItem("dosis.stockFilter", stockFilter); } catch {}
@@ -757,7 +771,7 @@ const LocalDB = (() => {
         <div class="row">
           <button class="btn primary" id="d-add">Registrar compra</button>
           <button class="btn" id="d-count">Recontar</button>
-          <button class="btn" id="d-extra">${m.prn && !perDayOn(m, T) ? "Registrar toma" : "Tomó una extra"}</button>
+          ${m.prn ? "" : `<button class="btn" id="d-extra">Tomó una extra</button>`}
         </div>
         <div id="d-stockForm"></div>
       </div>
@@ -813,7 +827,7 @@ const LocalDB = (() => {
     };
     sh.querySelector("#d-add").onclick = () => qtyForm("add");
     sh.querySelector("#d-count").onclick = () => qtyForm("count");
-    sh.querySelector("#d-extra").onclick = () => {
+    if (sh.querySelector("#d-extra")) sh.querySelector("#d-extra").onclick = () => {
       editing = true;
       const f = sh.querySelector("#d-stockForm");
       f.innerHTML = `<form class="panel" style="padding:12px;background:var(--bg)" id="xf">
