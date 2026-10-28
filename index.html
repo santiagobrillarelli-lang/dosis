@@ -790,7 +790,6 @@ const LocalDB = (() => {
         <div class="row">
           <button class="btn primary" id="d-add">Registrar compra</button>
           <button class="btn" id="d-count">Recontar</button>
-          ${m.prn ? "" : `<button class="btn" id="d-extra">Tomó una extra</button>`}
         </div>
         <div id="d-stockForm"></div>
       </div>
@@ -846,25 +845,6 @@ const LocalDB = (() => {
     };
     sh.querySelector("#d-add").onclick = () => qtyForm("add");
     sh.querySelector("#d-count").onclick = () => qtyForm("count");
-    if (sh.querySelector("#d-extra")) sh.querySelector("#d-extra").onclick = () => {
-      editing = true;
-      const f = sh.querySelector("#d-stockForm");
-      f.innerHTML = `<form class="panel" style="padding:12px;background:var(--bg)" id="xf">
-        <div class="row">
-          <label class="field"><span>Cuánto tomó</span><input id="x-qty" inputmode="decimal" required value="1"></label>
-          <label class="field"><span>Fecha</span><input id="x-date" type="date" value="${T}" max="${T}"></label>
-        </div>
-        <p class="hint">Se descuenta del stock. Para calcular cuánto te dura y qué pedir, se suma el promedio de tomas extra de las últimas 4 semanas.</p>
-        <button class="btn primary" type="submit">Guardar toma</button></form>`;
-      f.querySelector("#xf").onsubmit = async e => {
-        e.preventDefault();
-        const qty = parseNum(f.querySelector("#x-qty").value), date = f.querySelector("#x-date").value || T;
-        if (!(qty > 0)) { toast("Escribí una cantidad válida."); return; }
-        const nm = structuredClone(m);
-        nm.extras = [...(nm.extras || []), { date, qty, at: new Date().toISOString() }];
-        await saveMed(nm); toast("Toma registrada");
-      };
-    };
     const doseForm = (resume) => {
       editing = true;
       const f = sh.querySelector("#d-doseForm");
