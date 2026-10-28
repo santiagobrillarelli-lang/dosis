@@ -491,7 +491,7 @@ const LocalDB = (() => {
           <div class="small muted">${esc(doseText(m, T))}</div></div>
         <div class="left"><div class="big">${c.stock === null ? "–" : fmtQty(Math.max(0, c.stock))}</div><div class="small muted">${esc(unitOf(m))}</div></div>
         <div class="bar ${lv}" aria-hidden="true"><i style="width:${pct}%"></i></div>
-        <div class="meta"><span class="chip ${lv}">${esc(until)}</span>
+        <div class="meta">${c.days === Infinity && nextStop(m, T) ? "" : `<span class="chip ${lv}">${esc(until)}</span>`}
           ${nextStop(m, T) ? `<span class="chip plain">Se suspende el ${esc(fmtShort(nextStop(m, T).from))}</span>` : ""}
           ${m.psych ? `<span class="chip psy">Psiquiátrico</span>` : `<span class="chip gen">No psiquiátrico</span>`}
           ${m.doctor ? `<span>${esc(m.doctor)}</span>` : ""}
@@ -783,7 +783,7 @@ const LocalDB = (() => {
       <div class="panel">
         <div class="row" style="justify-content:space-between;align-items:flex-end">
           <div><div class="label">Quedan hoy</div><div class="num" style="font-size:2.2rem;font-weight:600;line-height:1.1">${c.stock === null ? "–" : fmtQty(Math.max(0, c.stock))} <span class="small muted" style="font-family:var(--f-body)">${esc(unitOf(m))}</span></div></div>
-          <span class="chip ${cur && cur.stopped ? "plain" : lv}">${cur && cur.stopped ? "Suspendido" : c.days === Infinity ? "No se consume" : c.stock < 0 ? "Se terminó" : `Alcanza hasta el ${esc(fmtShort(c.until))}`}</span>
+          <span class="chip ${cur && cur.stopped ? "plain" : lv}">${cur && cur.stopped ? "Suspendido" : c.days === Infinity && nextStop(m, T) ? `Se suspende el ${esc(fmtShort(nextStop(m, T).from))}` : c.days === Infinity ? "No se consume" : c.stock < 0 ? "Se terminó" : `Alcanza hasta el ${esc(fmtShort(c.until))}`}</span>
         </div>
         ${extraAvg(m, T) > 0 ? `<p class="hint" style="margin:0">${m.prn ? "Tomas" : "Tomas extra"}: ${String(Math.round(extraAvg(m, T) * 7 * 10) / 10).replace(".", ",")} por semana en promedio. Ya está sumado en "Alcanza hasta".</p>` : ""}
         ${c.stock < 0 ? `<p class="hint">Según la dosis, faltan ${fmtQty(-c.stock)} ${esc(unitOf(m))}. Registrá la compra o hacé un recuento.</p>` : ""}
