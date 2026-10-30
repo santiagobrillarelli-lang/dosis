@@ -505,9 +505,24 @@ const LocalDB = (() => {
     v.querySelectorAll("[data-take]").forEach(b => b.onclick = async e => {
       e.stopPropagation();
       const m = meds.find(x => x.id === b.dataset.take); if (!m) return;
-      const nm = structuredClone(m);
-      nm.extras = [...(nm.extras || []), { date: T, qty: 1, at: new Date().toISOString() }];
-      await saveMed(nm); toast("Toma registrada");
+      editing = true;
+      const sh = openSheet(`<div class="sheet-head"><h2>Registrar toma · ${esc(m.name)}</h2><button class="x" data-close aria-label="Cerrar">×</button></div>
+        <form class="panel" id="tf">
+          <div class="row">
+            <label class="field"><span>Cuántas tomó</span><input id="t-qty" inputmode="decimal" required value="1"></label>
+            <label class="field"><span>Fecha</span><input id="t-date" type="date" value="${T}" max="${T}"></label>
+          </div>
+          <p class="hint">Se acepta ½ o 0,5.</p>
+          <button class="btn primary" type="submit">Guardar toma</button></form>`);
+      sh.querySelector("#tf").onsubmit = async ev => {
+        ev.preventDefault();
+        const qty = parseNum(sh.querySelector("#t-qty").value), date = sh.querySelector("#t-date").value || T;
+        if (!(qty > 0)) { toast("Escribí una cantidad válida."); return; }
+        if (date > T) { toast("La fecha no puede ser futura."); return; }
+        const nm = structuredClone(m);
+        nm.extras = [...(nm.extras || []), { date, qty, at: new Date().toISOString() }];
+        closeSheet(); await saveMed(nm); toast("Toma registrada");
+      };
     });
     v.querySelectorAll("#stockFilter button").forEach(b => b.onclick = () => {
       stockFilter = +b.dataset.f;
